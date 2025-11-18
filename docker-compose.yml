@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: telegram-llm-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Override or add environment variables here if needed
+      - TZ=Europe/Moscow
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Optional: Mount volume for logs if you implement file logging
+    # volumes:
+    #   - ./logs:/app/logs
+    networks:
+      - bot-network
+
+networks:
+  bot-network:
+    driver: bridge

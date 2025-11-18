@@ -1,0 +1,45 @@
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentation
+README.md
+SPECIFICATION.md
+*.md
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+bin/
+dist/
+*.exe
+
+# Logs
+*.log
+logs/
+
+# Test files
+*_test.go
+tests/
+
+# Temporary files
+tmp/
+temp/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
