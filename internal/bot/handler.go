@@ -10,6 +10,11 @@ import (
 	"github.com/telegram-llm-bot/internal/models"
 )
 
+const (
+	// MaxQuestionLength is the maximum allowed length for a user question in characters
+	MaxQuestionLength = 2000
+)
+
 // handleUpdate processes incoming update
 func (b *Bot) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 	// Wrap in recover middleware
@@ -23,18 +28,17 @@ func (b *Bot) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 
 // handleMessage processes incoming message
 func (b *Bot) handleMessage(ctx context.Context, message *tgbotapi.Message) {
-	// Only process messages from the configured group chat
-	if message.Chat.ID != b.config.GroupChatID {
-		b.logger.Debug().
-			Int64("chat_id", message.Chat.ID).
-			Int64("expected_chat_id", b.config.GroupChatID).
-			Msg("Ignoring message from different chat")
+	// Handle commands from any chat (including private messages)
+	if message.IsCommand() {
+		b.handleCommand(ctx, message)
 		return
 	}
 
-	// Handle commands
-	if message.IsCommand() {
-		b.handleCommand(ctx, message)
+	// Only process non-command messages from allowed chats
+	if !b.config.IsAllowedChat(message.Chat.ID) {
+		b.logger.Debug().
+			Int64("chat_id", message.Chat.ID).
+			Msg("Ignoring message from non-allowed chat")
 		return
 	}
 
@@ -141,10 +145,27 @@ func (b *Bot) handleMention(ctx context.Context, message *tgbotapi.Message) {
 		return
 	}
 
+	// Check question length and truncate if needed
+	questionRunes := []rune(questionText)
+	if len(questionRunes) > MaxQuestionLength {
+		b.logger.Warn().
+			Int64("user_id", userID).
+			Int("question_length", len(questionRunes)).
+			Msg("Question too long, truncating")
+
+		questionText = string(questionRunes[:MaxQuestionLength])
+
+		// Notify user about truncation
+		b.sendMessage(chatID, fmt.Sprintf(
+			"⚠️ Ваш вопрос был обрезан до %d символов. Пожалуйста, формулируйте вопросы короче.",
+			MaxQuestionLength,
+		))
+	}
+
 	b.logger.Info().
 		Int64("user_id", userID).
 		Str("username", username).
-		Str("question", questionText).
+		Int("question_length", len(questionRunes)).
 		Msg("Processing mention")
 
 	// Send typing action
@@ -175,7 +196,6 @@ func (b *Bot) handleMention(ctx context.Context, message *tgbotapi.Message) {
 		ChatID:      chatID,
 		Text:        questionText,
 		ModelType:   limitResult.ModelToUse,
-		MaxLength:   b.config.MaxResponseLen,
 		TimeoutSecs: b.config.GeminiTimeout,
 	}
 
@@ -189,12 +209,12 @@ func (b *Bot) handleMention(ctx context.Context, message *tgbotapi.Message) {
 			Int64("user_id", userID).
 			Str("model", llmResp.ModelUsed).
 			Msg("LLM request failed")
-		
+
 		// Don't increment usage if request failed
 		b.sendErrorMessage(chatID, "❌ Извините, произошла ошибка при обработке вашего запроса. Попробуйте позже.")
-		
+
 		// Log failed request
-		_ = b.storage.LogRequest(ctx, &models.RequestLog{
+		if err := b.storage.LogRequest(ctx, &models.RequestLog{
 			UserID:          userID,
 			Username:        username,
 			FirstName:       firstName,
@@ -206,8 +226,13 @@ func (b *Bot) handleMention(ctx context.Context, message *tgbotapi.Message) {
 			ExecutionTimeMs: llmResp.ExecutionTimeMs,
 			ErrorMessage:    llmResp.Error.Error(),
 			CreatedAt:       time.Now().UTC(),
-		})
-		
+		}); err != nil {
+			b.logger.Error().
+				Err(err).
+				Int64("user_id", userID).
+				Msg("Failed to log failed request, but continuing")
+		}
+
 		return
 	}
 
@@ -222,7 +247,11 @@ func (b *Bot) handleMention(ctx context.Context, message *tgbotapi.Message) {
 	}
 
 	// Log successful request
-	_ = b.storage.LogRequest(ctx, &models.RequestLog{
+	// Note: We use UTC for database timestamps to maintain consistency
+	// Rate limiter uses configured timezone (Moscow) for daily limits
+	// This separation allows proper timezone-based limit resets while
+	// keeping database timestamps in universal format
+	if err := b.storage.LogRequest(ctx, &models.RequestLog{
 		UserID:          userID,
 		Username:        username,
 		FirstName:       firstName,
@@ -234,7 +263,12 @@ func (b *Bot) handleMention(ctx context.Context, message *tgbotapi.Message) {
 		ExecutionTimeMs: llmResp.ExecutionTimeMs,
 		ErrorMessage:    "",
 		CreatedAt:       time.Now().UTC(),
-	})
+	}); err != nil {
+		b.logger.Error().
+			Err(err).
+			Int64("user_id", userID).
+			Msg("Failed to log successful request, but continuing")
+	}
 
 	// Determine model emoji
 	modelEmoji := "⚡"
@@ -265,7 +299,7 @@ func (b *Bot) isMentioned(message *tgbotapi.Message) bool {
 			}
 		}
 	}
-	
+
 	// Also check if message text contains bot username
 	return strings.Contains(strings.ToLower(message.Text), strings.ToLower("@"+b.config.TelegramUsername))
 }
@@ -273,14 +307,14 @@ func (b *Bot) isMentioned(message *tgbotapi.Message) bool {
 // extractQuestion extracts the question text from message, removing bot mention
 func (b *Bot) extractQuestion(message *tgbotapi.Message) string {
 	text := message.Text
-	
+
 	// Remove bot mention
 	botMention := "@" + b.config.TelegramUsername
 	text = strings.ReplaceAll(text, botMention, "")
 	text = strings.ReplaceAll(text, strings.ToLower(botMention), "")
-	
+
 	// Trim whitespace
 	text = strings.TrimSpace(text)
-	
+
 	return text
 }

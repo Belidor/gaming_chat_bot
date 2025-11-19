@@ -81,7 +81,7 @@
    # Telegram Bot (из Шага 1 и 2)
    TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
    TELEGRAM_BOT_USERNAME=my_llm_bot
-   TELEGRAM_GROUP_CHAT_ID=-1001234567890
+   TELEGRAM_ALLOWED_CHAT_IDS=-1001234567890,-1009876543210
 
    # Google Gemini API (из Шага 3)
    GEMINI_API_KEY=AIzaSy...
@@ -96,10 +96,11 @@
    ENVIRONMENT=production
    PRO_DAILY_LIMIT=5
    FLASH_DAILY_LIMIT=25
-   MAX_RESPONSE_LENGTH=5000
    GEMINI_TIMEOUT=30
    SUPABASE_TIMEOUT=10
    ```
+   
+   **Примечание**: Максимальная длина ответа (3500 символов) зафиксирована в коде для совместимости с лимитом Telegram.
 
 3. Сохраните файл
 
@@ -240,8 +241,8 @@ docker-compose logs | grep ERROR
 **Решение**:
 1. Проверьте что бот запущен: `docker-compose ps`
 2. Проверьте логи: `docker-compose logs -f`
-3. Убедитесь что `TELEGRAM_GROUP_CHAT_ID` правильный
-4. Проверьте что бот добавлен в группу
+3. Убедитесь что `TELEGRAM_ALLOWED_CHAT_IDS` содержит правильные ID чатов
+4. Проверьте что бот добавлен в нужные группы
 5. Попробуйте удалить бота из группы и добавить заново
 
 ### Ошибка "Supabase ping failed"

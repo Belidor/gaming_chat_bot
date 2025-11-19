@@ -6,11 +6,15 @@ import "time"
 type ModelType string
 
 const (
-	// ModelPro represents Gemini 2.0 Flash Thinking Experimental model
-	ModelPro ModelType = "gemini-2.0-flash-thinking-exp"
-	
-	// ModelFlash represents Gemini 2.0 Flash Experimental model  
-	ModelFlash ModelType = "gemini-2.0-flash-exp"
+	// ModelPro represents Gemini 2.5 Pro model
+	// Used for complex tasks requiring deeper reasoning
+	// See current rate limits: https://ai.google.dev/pricing
+	ModelPro ModelType = "gemini-2.5-pro"
+
+	// ModelFlash represents Gemini 2.0 Flash model
+	// Used for fast responses with good quality
+	// See current rate limits: https://ai.google.dev/pricing
+	ModelFlash ModelType = "gemini-2.0-flash"
 )
 
 // String returns string representation of ModelType
@@ -65,7 +69,6 @@ type LLMRequest struct {
 	ChatID      int64
 	Text        string
 	ModelType   ModelType
-	MaxLength   int
 	TimeoutSecs int
 }
 
@@ -80,11 +83,11 @@ type LLMResponse struct {
 
 // RateLimitResult represents the result of rate limit check
 type RateLimitResult struct {
-	Allowed         bool
-	ModelToUse      ModelType
-	ProRemaining    int
-	FlashRemaining  int
-	Message         string
+	Allowed        bool
+	ModelToUse     ModelType
+	ProRemaining   int
+	FlashRemaining int
+	Message        string
 }
 
 // BotConfig represents bot configuration
@@ -92,24 +95,39 @@ type BotConfig struct {
 	// Telegram settings
 	TelegramToken    string
 	TelegramUsername string
-	GroupChatID      int64
-	
+	AllowedChatIDs   []int64 // List of allowed chat IDs (supports multiple chats)
+
 	// Gemini API settings
-	GeminiAPIKey     string
-	GeminiTimeout    int
-	
+	GeminiAPIKey  string
+	GeminiTimeout int
+
 	// Supabase settings
-	SupabaseURL      string
-	SupabaseKey      string
-	SupabaseTimeout  int
-	
+	SupabaseURL     string
+	SupabaseKey     string
+	SupabaseTimeout int
+
 	// App settings
-	Timezone         string
-	LogLevel         string
-	Environment      string
-	
+	Timezone    string
+	LogLevel    string
+	Environment string
+
 	// Rate limits
-	ProDailyLimit    int
-	FlashDailyLimit  int
-	MaxResponseLen   int
+	ProDailyLimit   int
+	FlashDailyLimit int
+
+	// LLM Generation Parameters
+	LLMTemperature float32
+	LLMTopP        float32
+	LLMTopK        int32
+	LLMMaxTokens   int32
+}
+
+// IsAllowedChat checks if the given chat ID is in the allowed list
+func (c *BotConfig) IsAllowedChat(chatID int64) bool {
+	for _, allowedID := range c.AllowedChatIDs {
+		if allowedID == chatID {
+			return true
+		}
+	}
+	return false
 }

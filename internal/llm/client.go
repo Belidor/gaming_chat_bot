@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/generative-ai-go/genai"
@@ -14,31 +15,72 @@ import (
 
 // Client represents a Gemini LLM client
 type Client struct {
-	apiKey  string
-	timeout time.Duration
-	logger  zerolog.Logger
+	apiKey      string
+	timeout     time.Duration
+	config      *models.BotConfig
+	logger      zerolog.Logger
+	genaiClient *genai.Client
+	mu          sync.Mutex
 }
 
 // NewClient creates a new Gemini LLM client
-func NewClient(apiKey string, timeout int, logger zerolog.Logger) *Client {
+func NewClient(apiKey string, timeout int, config *models.BotConfig, logger zerolog.Logger) *Client {
 	return &Client{
-		apiKey:  apiKey,
-		timeout: time.Duration(timeout) * time.Second,
-		logger:  logger.With().Str("component", "llm").Logger(),
+		apiKey:      apiKey,
+		timeout:     time.Duration(timeout) * time.Second,
+		config:      config,
+		logger:      logger.With().Str("component", "llm").Logger(),
+		genaiClient: nil, // Will be created on first use
 	}
+}
+
+// getClient returns or creates a genai client (thread-safe)
+func (c *Client) getClient(ctx context.Context) (*genai.Client, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.genaiClient != nil {
+		return c.genaiClient, nil
+	}
+
+	client, err := genai.NewClient(ctx, option.WithAPIKey(c.apiKey))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create genai client: %w", err)
+	}
+
+	c.genaiClient = client
+	c.logger.Info().Msg("Gemini client created and cached")
+	return c.genaiClient, nil
+}
+
+// Close closes the LLM client and releases resources
+func (c *Client) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.genaiClient != nil {
+		err := c.genaiClient.Close()
+		c.genaiClient = nil
+		if err != nil {
+			c.logger.Error().Err(err).Msg("Failed to close Gemini client")
+			return err
+		}
+		c.logger.Info().Msg("Gemini client closed")
+	}
+	return nil
 }
 
 // GenerateResponse generates a response from LLM
 func (c *Client) GenerateResponse(ctx context.Context, req *models.LLMRequest) *models.LLMResponse {
 	startTime := time.Now()
-	
+
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
 	// Try to generate response with retry
 	response := c.generateWithRetry(ctx, req)
-	
+
 	// Calculate execution time
 	response.ExecutionTimeMs = int(time.Since(startTime).Milliseconds())
 
@@ -96,29 +138,28 @@ func (c *Client) generateWithRetry(ctx context.Context, req *models.LLMRequest) 
 
 // generate makes actual API call to Gemini
 func (c *Client) generate(ctx context.Context, req *models.LLMRequest) (*models.LLMResponse, error) {
-	// Create Gemini client
-	client, err := genai.NewClient(ctx, option.WithAPIKey(c.apiKey))
+	// Get or create Gemini client (reused across requests)
+	client, err := c.getClient(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create genai client: %w", err)
+		return nil, fmt.Errorf("failed to get genai client: %w", err)
 	}
-	defer client.Close()
 
 	// Get the model
 	model := client.GenerativeModel(req.ModelType.String())
-	
-	// Configure generation
-	model.SetTemperature(0.7)
-	model.SetTopP(0.95)
-	model.SetTopK(40)
-	model.SetMaxOutputTokens(8192)
+
+	// Configure generation with parameters from config
+	model.SetTemperature(c.config.LLMTemperature)
+	model.SetTopP(c.config.LLMTopP)
+	model.SetTopK(c.config.LLMTopK)
+	model.SetMaxOutputTokens(c.config.LLMMaxTokens)
 
 	// Create prompt with length limitation
-	prompt := fmt.Sprintf(SystemPromptTemplate, req.MaxLength, req.Text)
+	prompt := fmt.Sprintf(SystemPromptTemplate, req.Text)
 
 	c.logger.Debug().
 		Int64("user_id", req.UserID).
 		Str("model", req.ModelType.String()).
-		Int("max_length", req.MaxLength).
+		Int("max_length", MaxResponseLength).
 		Msg("Sending request to LLM")
 
 	// Generate content
@@ -146,35 +187,46 @@ func (c *Client) generate(ctx context.Context, req *models.LLMRequest) (*models.
 	}
 
 	text := responseText.String()
-	
-	// Check if response exceeds max length
-	if len(text) > req.MaxLength {
-		c.logger.Warn().
-			Int64("user_id", req.UserID).
-			Str("model", req.ModelType.String()).
-			Int("actual_length", len(text)).
-			Int("max_length", req.MaxLength).
-			Msg("Response exceeds max length, truncating")
 
-		// Truncate and add fallback message
-		truncateAt := req.MaxLength - len(FallbackMessage)
-		if truncateAt < 0 {
-			truncateAt = req.MaxLength
+	// Check if response exceeds max length
+	if len([]rune(text)) > MaxResponseLength {
+		runes := []rune(text)
+		fallbackRunes := []rune(FallbackMessage)
+		maxContentLength := MaxResponseLength - len(fallbackRunes)
+
+		// Protection against too long fallback message
+		if maxContentLength < 100 {
+			// If fallback message is too long, truncate without it
+			text = string(runes[:MaxResponseLength])
+			c.logger.Warn().
+				Int64("user_id", req.UserID).
+				Str("model", req.ModelType.String()).
+				Int("original_length", len(runes)).
+				Int("truncated_length", MaxResponseLength).
+				Msg("Response truncated without fallback (fallback too long)")
+		} else {
+			// Normal truncation with fallback
+			text = string(runes[:maxContentLength]) + FallbackMessage
+			c.logger.Warn().
+				Int64("user_id", req.UserID).
+				Str("model", req.ModelType.String()).
+				Int("original_length", len(runes)).
+				Int("truncated_length", len([]rune(text))).
+				Msg("Response truncated to fit Telegram limit")
 		}
-		text = text[:truncateAt] + FallbackMessage
 	}
 
 	c.logger.Info().
 		Int64("user_id", req.UserID).
 		Str("username", req.Username).
 		Str("model", req.ModelType.String()).
-		Int("response_length", len(text)).
+		Int("response_length", len([]rune(text))).
 		Msg("LLM response generated successfully")
 
 	return &models.LLMResponse{
 		Text:      text,
 		ModelUsed: req.ModelType.String(),
-		Length:    len(text),
+		Length:    len([]rune(text)),
 		Error:     nil,
 	}, nil
 }

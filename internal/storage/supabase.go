@@ -63,7 +63,7 @@ func (c *Client) withRetry(ctx context.Context, operation string, fn func() erro
 				Int("attempt", attempt+1).
 				Dur("backoff", backoff).
 				Msg("Retrying operation")
-			
+
 			select {
 			case <-ctx.Done():
 				return ctx.Err()

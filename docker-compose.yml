@@ -12,6 +12,7 @@ services:
     environment:
       # Override or add environment variables here if needed
       - TZ=Europe/Moscow
+      - LOG_LEVEL=debug
     logging:
       driver: "json-file"
       options:

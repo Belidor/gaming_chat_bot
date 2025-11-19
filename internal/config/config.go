@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/telegram-llm-bot/internal/models"
@@ -19,7 +20,7 @@ func Load() (*models.BotConfig, error) {
 		// Telegram settings
 		TelegramToken:    getEnv("TELEGRAM_BOT_TOKEN", ""),
 		TelegramUsername: getEnv("TELEGRAM_BOT_USERNAME", ""),
-		GroupChatID:      getEnvInt64("TELEGRAM_GROUP_CHAT_ID", 0),
+		AllowedChatIDs:   getEnvInt64List("TELEGRAM_ALLOWED_CHAT_IDS", nil),
 
 		// Gemini API settings
 		GeminiAPIKey:  getEnv("GEMINI_API_KEY", ""),
@@ -38,7 +39,12 @@ func Load() (*models.BotConfig, error) {
 		// Rate limits
 		ProDailyLimit:   getEnvInt("PRO_DAILY_LIMIT", 5),
 		FlashDailyLimit: getEnvInt("FLASH_DAILY_LIMIT", 25),
-		MaxResponseLen:  getEnvInt("MAX_RESPONSE_LENGTH", 5000),
+
+		// LLM parameters
+		LLMTemperature: getEnvFloat32("LLM_TEMPERATURE", 0.7),
+		LLMTopP:        getEnvFloat32("LLM_TOP_P", 0.95),
+		LLMTopK:        getEnvInt32("LLM_TOP_K", 40),
+		LLMMaxTokens:   getEnvInt32("LLM_MAX_TOKENS", 8192),
 	}
 
 	// Validate configuration
@@ -57,8 +63,8 @@ func validate(cfg *models.BotConfig) error {
 	if cfg.TelegramUsername == "" {
 		return fmt.Errorf("TELEGRAM_BOT_USERNAME is required")
 	}
-	if cfg.GroupChatID == 0 {
-		return fmt.Errorf("TELEGRAM_GROUP_CHAT_ID is required")
+	if len(cfg.AllowedChatIDs) == 0 {
+		return fmt.Errorf("TELEGRAM_ALLOWED_CHAT_IDS is required (comma-separated list of chat IDs)")
 	}
 	if cfg.GeminiAPIKey == "" {
 		return fmt.Errorf("GEMINI_API_KEY is required")
@@ -76,9 +82,6 @@ func validate(cfg *models.BotConfig) error {
 	}
 	if cfg.FlashDailyLimit <= 0 {
 		return fmt.Errorf("FLASH_DAILY_LIMIT must be positive, got %d", cfg.FlashDailyLimit)
-	}
-	if cfg.MaxResponseLen <= 0 {
-		return fmt.Errorf("MAX_RESPONSE_LENGTH must be positive, got %d", cfg.MaxResponseLen)
 	}
 	if cfg.GeminiTimeout <= 0 {
 		return fmt.Errorf("GEMINI_TIMEOUT must be positive, got %d", cfg.GeminiTimeout)
@@ -115,12 +118,12 @@ func getEnvInt(key string, defaultValue int) int {
 	if valueStr == "" {
 		return defaultValue
 	}
-	
+
 	value, err := strconv.Atoi(valueStr)
 	if err != nil {
 		return defaultValue
 	}
-	
+
 	return value
 }
 
@@ -130,11 +133,65 @@ func getEnvInt64(key string, defaultValue int64) int64 {
 	if valueStr == "" {
 		return defaultValue
 	}
-	
+
 	value, err := strconv.ParseInt(valueStr, 10, 64)
 	if err != nil {
 		return defaultValue
 	}
-	
+
 	return value
+}
+
+// getEnvInt64List retrieves environment variable as a comma-separated list of int64
+func getEnvInt64List(key string, defaultValue []int64) []int64 {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return defaultValue
+	}
+
+	parts := strings.Split(valueStr, ",")
+	result := make([]int64, 0, len(parts))
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		value, err := strconv.ParseInt(part, 10, 64)
+		if err != nil {
+			// Skip invalid values
+			continue
+		}
+
+		result = append(result, value)
+	}
+
+	return result
+}
+
+// getEnvFloat32 retrieves environment variable as float32 or returns default value
+func getEnvFloat32(key string, defaultValue float32) float32 {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return defaultValue
+	}
+	value, err := strconv.ParseFloat(valueStr, 32)
+	if err != nil {
+		return defaultValue
+	}
+	return float32(value)
+}
+
+// getEnvInt32 retrieves environment variable as int32 or returns default value
+func getEnvInt32(key string, defaultValue int32) int32 {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return defaultValue
+	}
+	value, err := strconv.ParseInt(valueStr, 10, 32)
+	if err != nil {
+		return defaultValue
+	}
+	return int32(value)
 }

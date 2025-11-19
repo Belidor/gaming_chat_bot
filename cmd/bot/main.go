@@ -56,7 +56,12 @@ func main() {
 
 	// Initialize LLM client
 	logger.Info().Msg("Initializing Gemini LLM client...")
-	llmClient := llm.NewClient(cfg.GeminiAPIKey, cfg.GeminiTimeout, logger)
+	llmClient := llm.NewClient(cfg.GeminiAPIKey, cfg.GeminiTimeout, cfg, logger)
+	defer func() {
+		if err := llmClient.Close(); err != nil {
+			logger.Error().Err(err).Msg("Failed to close LLM client")
+		}
+	}()
 
 	// Initialize rate limiter
 	logger.Info().Msg("Initializing rate limiter...")
@@ -80,7 +85,7 @@ func main() {
 
 	logger.Info().
 		Str("username", telegramBot.GetUsername()).
-		Int64("group_chat_id", cfg.GroupChatID).
+		Interface("allowed_chat_ids", cfg.AllowedChatIDs).
 		Msg("Bot initialized successfully")
 
 	// Setup signal handling for graceful shutdown
@@ -110,16 +115,21 @@ func main() {
 	cancel()
 
 	// Give the bot some time to finish processing
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
+
+	// Create a channel to signal shutdown complete
+	done := make(chan struct{})
+	go func() {
+		telegramBot.Stop() // This will wait for WaitGroup internally
+		close(done)
+	}()
 
 	// Wait for shutdown or timeout
 	select {
 	case <-shutdownCtx.Done():
-		if shutdownCtx.Err() == context.DeadlineExceeded {
-			logger.Warn().Msg("Shutdown timeout exceeded, forcing exit")
-		}
-	case <-time.After(2 * time.Second):
+		logger.Warn().Msg("Shutdown timeout exceeded, some requests may be lost")
+	case <-done:
 		logger.Info().Msg("Graceful shutdown completed")
 	}
 

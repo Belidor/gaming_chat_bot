@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS request_logs (
     chat_id BIGINT NOT NULL,                    -- Telegram Chat ID
     request_text TEXT NOT NULL,                 -- User's question/request
     response_text TEXT NOT NULL,                -- LLM response
-    model_used TEXT NOT NULL,                   -- 'gemini-2.0-flash-exp' or 'gemini-1.5-pro'
+    model_used TEXT NOT NULL,                   -- 'gemini-2.0-flash' or 'gemini-2.5-pro'
     response_length INTEGER NOT NULL,           -- Length of response in characters
     execution_time_ms INTEGER NOT NULL,         -- Execution time in milliseconds
     error_message TEXT,                         -- Error message if request failed
@@ -62,7 +62,7 @@ COMMENT ON TABLE request_logs IS 'Stores all requests made to the Telegram bot w
 COMMENT ON TABLE daily_limits IS 'Tracks daily request limits per user (resets at midnight Moscow time)';
 
 COMMENT ON COLUMN request_logs.user_id IS 'Telegram user ID who made the request';
-COMMENT ON COLUMN request_logs.model_used IS 'LLM model used: gemini-2.0-flash-exp or gemini-1.5-pro';
+COMMENT ON COLUMN request_logs.model_used IS 'LLM model used: gemini-2.0-flash or gemini-2.5-pro';
 COMMENT ON COLUMN request_logs.execution_time_ms IS 'Total execution time including API calls';
 COMMENT ON COLUMN request_logs.error_message IS 'Error details if request failed';
 
@@ -125,7 +125,7 @@ $$ LANGUAGE plpgsql;
 -- Optional: Create a view for daily statistics
 CREATE OR REPLACE VIEW daily_statistics AS
 SELECT 
-    date,
+    DATE(created_at AT TIME ZONE 'Europe/Moscow') as date,
     COUNT(DISTINCT user_id) as unique_users,
     COUNT(*) as total_requests,
     SUM(CASE WHEN model_used LIKE '%pro%' THEN 1 ELSE 0 END) as pro_requests,

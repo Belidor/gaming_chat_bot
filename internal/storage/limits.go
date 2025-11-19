@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/telegram-llm-bot/internal/models"
@@ -26,7 +27,7 @@ func (c *Client) GetDailyLimit(ctx context.Context, userID int64, date string) (
 			Int64("user_id", userID).
 			Str("date", date).
 			Msg("No existing limit found via RPC")
-		
+
 		// Return zero counts on empty response
 		return &models.DailyLimit{
 			UserID:             userID,
@@ -43,11 +44,11 @@ func (c *Client) GetDailyLimit(ctx context.Context, userID int64, date string) (
 		FlashCount int `json:"flash_count"`
 	}
 
-	if err := json.Unmarshal([]byte(data), &results); err != nil{
+	if err := json.Unmarshal([]byte(data), &results); err != nil {
 		c.logger.Warn().
 			Err(err).
 			Msg("Failed to unmarshal RPC response, returning zero counts")
-		
+
 		return &models.DailyLimit{
 			UserID:             userID,
 			Date:               date,
@@ -133,33 +134,8 @@ func isNotFoundError(err error) bool {
 		return false
 	}
 	// Check if error message contains common "not found" indicators
-	errMsg := err.Error()
-	return contains(errMsg, "not found") || 
-	       contains(errMsg, "no rows") ||
-	       contains(errMsg, "PGRST116")
-}
-
-// contains checks if string contains substring (case-insensitive)
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && 
-	       (s == substr || 
-		    len(s) > len(substr) && 
-			(hasPrefix(s, substr) || hasSuffix(s, substr) || hasInfix(s, substr)))
-}
-
-func hasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[0:len(prefix)] == prefix
-}
-
-func hasSuffix(s, suffix string) bool {
-	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
-}
-
-func hasInfix(s, infix string) bool {
-	for i := 0; i+len(infix) <= len(s); i++ {
-		if s[i:i+len(infix)] == infix {
-			return true
-		}
-	}
-	return false
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "not found") ||
+		strings.Contains(errMsg, "no rows") ||
+		strings.Contains(errMsg, "pgrst116")
 }

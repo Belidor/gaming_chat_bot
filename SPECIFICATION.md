@@ -74,8 +74,8 @@ Telegram бот на Go для группового чата с интеграц
 - Контекст с таймаутом для всех запросов
 
 **Модели:**
-- `gemini-2.0-flash-thinking-exp` (Pro) - Думающая модель
-- `gemini-2.0-flash-exp` (Flash) - Быстрая модель
+- `gemini-2.5-pro` (Pro) - Модель для сложных задач (2 RPM, 50 RPD)
+- `gemini-2.0-flash` (Flash) - Быстрая модель (15 RPM, 200 RPD)
 
 #### 3. Rate Limit Package (`internal/ratelimit`)
 Управление лимитами запросов пользователей.
@@ -220,7 +220,8 @@ modelToUse := limitResult.ModelToUse // Pro или Flash
 llmReq := &LLMRequest{
     Text: questionText,
     ModelType: modelToUse,
-    MaxLength: 5000,
+    // MaxLength жестко закодирована в промпте как 3500 символов
+    // для совместимости с лимитом Telegram (4096 символов)
 }
 
 llmResp := llmClient.GenerateResponse(ctx, llmReq)
@@ -341,7 +342,7 @@ sendMessage(llmResp.Text)
 **Обязательные:**
 - TELEGRAM_BOT_TOKEN
 - TELEGRAM_BOT_USERNAME
-- TELEGRAM_GROUP_CHAT_ID
+- TELEGRAM_ALLOWED_CHAT_IDS (comma-separated list of allowed chat IDs)
 - GEMINI_API_KEY
 - SUPABASE_URL
 - SUPABASE_KEY

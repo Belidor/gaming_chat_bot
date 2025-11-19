@@ -171,11 +171,11 @@ func (l *Limiter) hoursUntilMidnight(now time.Time) int {
 	midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, l.timezone)
 	duration := midnight.Sub(now)
 	hours := int(duration.Hours())
-	
+
 	// If less than 1 hour, show at least 1
 	if hours < 1 {
 		hours = 1
 	}
-	
+
 	return hours
 }
