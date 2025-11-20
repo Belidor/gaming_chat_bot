@@ -1,4 +1,4 @@
-.PHONY: help build run stop clean test docker-build docker-run docker-stop docker-logs docker-shell compose-up compose-down compose-logs compose-restart embeddings embeddings-dry import
+.PHONY: help build run stop clean test docker-build docker-run docker-stop docker-logs docker-shell compose-up compose-down compose-logs compose-restart embeddings embeddings-dry import test-rag test-rag-stats
 
 # Variables
 BINARY_NAME=telegram-llm-bot
@@ -21,6 +21,11 @@ help:
 	@echo "  make embeddings-limit LIMIT=1000 - Process only N messages"
 	@echo "  make import FILE=result.json - Import Telegram export"
 	@echo "  make import FILE=result.json DRY_RUN=true - Import dry run"
+	@echo ""
+	@echo "RAG Testing commands:"
+	@echo "  make test-rag-stats  - Show RAG statistics and indexing status"
+	@echo "  make test-rag QUERY=\"вопрос\" - Test RAG search"
+	@echo "  make test-rag QUERY=\"вопрос\" TOP=5 THRESHOLD=0.7 - Custom params"
 	@echo ""
 	@echo "Docker commands:"
 	@echo "  make docker-build    - Build Docker image"
@@ -203,3 +208,22 @@ import:
 		echo "Importing: $(FILE)..."; \
 		go run scripts/import_telegram_export.go -file=$(FILE); \
 	fi
+
+# Test RAG search
+test-rag:
+	@if [ -z "$(QUERY)" ]; then \
+		echo "Usage: make test-rag QUERY=\"ваш вопрос\""; \
+		echo "   or: make test-rag QUERY=\"вопрос\" TOP=5 THRESHOLD=0.7"; \
+		echo ""; \
+		echo "Examples:"; \
+		echo "  make test-rag QUERY=\"Что говорили про игры?\""; \
+		echo "  make test-rag QUERY=\"крипта\" THRESHOLD=0.5"; \
+		go run scripts/test_rag.go; \
+	else \
+		go run scripts/test_rag.go -query="$(QUERY)" -top=$(or $(TOP),5) -threshold=$(or $(THRESHOLD),0.7); \
+	fi
+
+# Show RAG statistics
+test-rag-stats:
+	@echo "RAG System Statistics:"
+	@go run scripts/test_rag.go
