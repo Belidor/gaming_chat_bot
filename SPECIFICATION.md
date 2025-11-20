@@ -1,8 +1,8 @@
-# Telegram LLM Bot - Техническая спецификация
+# Telegram LLM Bot - Technical Specification
 
-## Обзор проекта
+## Project Overview
 
-Telegram бот на Go для группового чата с интеграцией Google Gemini AI, системой rate limiting и полным логированием запросов в Supabase PostgreSQL.
+A Telegram bot built with Go for group chats featuring Google Gemini AI integration, RAG (Retrieval-Augmented Generation) system, rate limiting, and comprehensive logging to Supabase PostgreSQL.
 
 ## Архитектура
 
@@ -404,59 +404,62 @@ go test -cover ./...
 - Тестовый Supabase проект
 - Gemini API ключ с квотой
 
-## Ограничения и известные проблемы
+## Current Limitations
 
-### Текущие ограничения
+1. **Multiple chats**: Bot can work in multiple chats (configured via TELEGRAM_ALLOWED_CHAT_IDS)
+2. **RAG context**: Chat history is preserved and used via vector search
+3. **Basic rate limiting**: Daily limits per user, no burst protection
+4. **No caching**: Repeated questions are sent to LLM (no response cache)
 
-1. **Один чат**: Бот работает только в одном групповом чате
-2. **Нет контекста**: Каждый запрос независим, история не сохраняется
-3. **Простой rate limiting**: Только по количеству, нет защиты от быстрых запросов
-4. **Отсутствие кэширования**: Повторяющиеся вопросы отправляются в LLM
+## Known Issues
 
-### Известные проблемы
+1. **Timezone sync**: System time must be synchronized for proper limit resets
+2. **Gemini API quota**: No warnings when approaching API quota limits
+3. **Long polling**: Network issues may cause up to 60-second delays
 
-1. **Timezone sync**: Важно чтобы системное время было синхронизировано
-2. **Gemini API quota**: Нет предупреждений о приближении к квоте API
-3. **Long polling**: При сетевых проблемах может быть задержка до 60 секунд
+## Future Improvements
 
-## Roadmap / Будущие улучшения
+### High Priority
+- [ ] Add unit and integration tests
+- [ ] Implement response caching for frequent questions
+- [ ] Add Prometheus metrics endpoint
 
-### Высокий приоритет
-- [ ] Добавить unit и integration тесты
-- [ ] Реализовать кэширование частых вопросов
-- [ ] Добавить Prometheus metrics
+### Medium Priority
+- [ ] User whitelist/blacklist functionality
+- [ ] Web dashboard for statistics and admin panel
+- [ ] Function calling (LLM decides when to use RAG)
+- [ ] Multi-query RAG for better retrieval
 
-### Средний приоритет
-- [ ] Поддержка нескольких чатов
-- [ ] Whitelist пользователей
-- [ ] Веб-интерфейс для статистики
-- [ ] History/контекст разговора
+### Low Priority
+- [ ] Webhook support instead of long polling
+- [ ] Multimodal support (images, documents)
+- [ ] Voice message transcription
+- [ ] Premium subscriptions with higher limits
 
-### Низкий приоритет
-- [ ] Webhook вместо long polling
-- [ ] Поддержка изображений
-- [ ] Голосовые сообщения → text-to-speech
-- [ ] Платные подписки с расширенными лимитами
+## Glossary
 
-## Глоссарий
+- **Pro model** - Gemini 2.0 Flash Thinking Experimental, slower but more accurate
+- **Flash model** - Gemini 2.0 Flash Experimental, fast response model
+- **RAG** - Retrieval-Augmented Generation, context-aware AI responses
+- **Rate limiting** - Restricting number of requests per user per time period
+- **Graceful shutdown** - Proper termination with active operation completion
+- **Long polling** - Method of receiving Telegram updates (alternative to webhooks)
+- **Upsert** - INSERT or UPDATE database operation
+- **Vector embedding** - Numerical representation of text for similarity search
+- **pgvector** - PostgreSQL extension for vector similarity search
 
-- **Pro модель** - Gemini 2.0 Flash Thinking Experimental, более медленная но более точная
-- **Flash модель** - Gemini 2.0 Flash Experimental, быстрая модель
-- **Rate limiting** - Ограничение количества запросов пользователя
-- **Graceful shutdown** - Корректное завершение с ожиданием активных операций
-- **Long polling** - Способ получения обновлений от Telegram (альтернатива webhook)
-- **Upsert** - Операция INSERT or UPDATE в БД
-
-## Ссылки
+## References
 
 - [Telegram Bot API](https://core.telegram.org/bots/api)
 - [Google Gemini API](https://ai.google.dev/docs)
 - [Supabase Documentation](https://supabase.com/docs)
 - [Go Telegram Bot API Library](https://github.com/go-telegram-bot-api/telegram-bot-api)
 - [Generative AI Go SDK](https://github.com/google/generative-ai-go)
+- [pgvector](https://github.com/pgvector/pgvector)
+- [RAG Systems Guide](https://www.pinecone.io/learn/retrieval-augmented-generation/)
 
 ---
 
-**Версия документа:** 1.0  
-**Дата обновления:** 2025-11-18  
-**Автор:** Cursor AI Agent
+**Document Version:** 2.0  
+**Last Updated:** 2025-11-20  
+**Status:** Production Ready

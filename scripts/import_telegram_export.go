@@ -86,16 +86,26 @@ func main() {
 		logger.Fatal().Err(err).Msg("Failed to parse export JSON")
 	}
 
+	// Normalize chat_id to Telegram Bot API format
+	// Telegram Desktop exports use positive IDs (e.g. 1750074031)
+	// Telegram Bot API uses negative IDs for supergroups (e.g. -1001750074031)
+	chatID := normalizeChatID(export.ID)
+
 	logger.Info().
 		Str("chat_name", export.Name).
-		Int64("chat_id", export.ID).
+		Int64("export_chat_id", export.ID).
+		Int64("normalized_chat_id", chatID).
 		Int("total_messages", len(export.Messages)).
 		Msg("Export file parsed successfully")
 
 	if *dryRun {
 		logger.Info().Msg("DRY RUN MODE - No changes will be made to database")
 		// Print sample messages
-		for i := 0; i < min(5, len(export.Messages)); i++ {
+		sampleCount := 5
+		if len(export.Messages) < sampleCount {
+			sampleCount = len(export.Messages)
+		}
+		for i := 0; i < sampleCount; i++ {
 			msg := export.Messages[i]
 			text := extractText(msg.Text)
 			logger.Info().
@@ -161,13 +171,16 @@ func main() {
 			timestamp = time.Now()
 		}
 
+		// Parse user_id from from_id field
+		userID := parseUserID(msg.FromID)
+
 		// Create chat message
 		chatMsg := &models.ChatMessage{
 			MessageID:   msg.ID,
-			UserID:      0, // Unknown from export
+			UserID:      userID,
 			Username:    msg.From,
 			FirstName:   msg.From,
-			ChatID:      export.ID,
+			ChatID:      chatID, // Use normalized chat_id
 			MessageText: text,
 			Indexed:     false,
 			CreatedAt:   timestamp,
@@ -292,18 +305,56 @@ func parseTimestamp(unixtime string) (time.Time, error) {
 	return time.Unix(timestamp, 0), nil
 }
 
-// min returns minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // truncate truncates string to max length
 func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
 	return s[:max] + "..."
+}
+
+// normalizeChatID normalizes chat_id to Telegram Bot API format
+// Telegram Desktop JSON exports use positive supergroup IDs (e.g. 1750074031)
+// Telegram Bot API uses format: -100{group_id} (e.g. -1001750074031)
+// This function converts positive supergroup IDs to Bot API format
+func normalizeChatID(chatID int64) int64 {
+	// If already negative, assume it's already in correct format
+	if chatID < 0 {
+		return chatID
+	}
+
+	// If positive and looks like a supergroup ID (large number > 1 billion)
+	// Convert to Bot API format: -100 prefix
+	if chatID > 1000000000 {
+		return -1000000000000 - chatID
+	}
+
+	// For private chats or small IDs, keep as is
+	return chatID
+}
+
+// parseUserID extracts user_id from Telegram export from_id field
+// Telegram Desktop exports use format: "user123456789" or "channel123456789"
+// We extract the numeric part
+func parseUserID(fromID string) int64 {
+	if fromID == "" {
+		return 0
+	}
+
+	// Remove "user" or "channel" prefix
+	var userID int64
+	
+	// Try formats: "user123456789", "channel123456789", or just "123456789"
+	if _, err := fmt.Sscanf(fromID, "user%d", &userID); err == nil {
+		return userID
+	}
+	if _, err := fmt.Sscanf(fromID, "channel%d", &userID); err == nil {
+		return -userID // Channels use negative IDs
+	}
+	if _, err := fmt.Sscanf(fromID, "%d", &userID); err == nil {
+		return userID
+	}
+
+	// If parsing failed, return 0
+	return 0
 }
