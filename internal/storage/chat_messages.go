@@ -136,9 +136,19 @@ func (c *Client) BatchUpdateEmbeddings(ctx context.Context, ids []int64, embeddi
 			return fmt.Errorf("failed to batch update embeddings: RPC returned empty")
 		}
 
-		// Parse result (should be a number)
-		if err := json.Unmarshal([]byte(data), &rowsUpdated); err != nil {
+		// Parse result - function returns array with one row
+		var results []struct {
+			RowsUpdated int `json:"rows_updated"`
+		}
+		
+		if err := json.Unmarshal([]byte(data), &results); err != nil {
 			return fmt.Errorf("failed to parse batch update result: %w", err)
+		}
+
+		if len(results) > 0 {
+			rowsUpdated = results[0].RowsUpdated
+		} else {
+			return fmt.Errorf("no result returned from batch_update_embeddings")
 		}
 
 		return nil

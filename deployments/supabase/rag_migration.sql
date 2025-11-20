@@ -161,9 +161,9 @@ CREATE OR REPLACE FUNCTION batch_update_embeddings(
     p_message_ids BIGINT[],
     p_embeddings VECTOR(768)[]
 )
-RETURNS INT AS $$
+RETURNS TABLE(rows_updated INT) AS $$
 DECLARE
-    rows_updated INT := 0;
+    updated_count INT := 0;
     i INT;
 BEGIN
     -- Validate input arrays have same length
@@ -181,11 +181,11 @@ BEGIN
         WHERE id = p_message_ids[i];
         
         IF FOUND THEN
-            rows_updated := rows_updated + 1;
+            updated_count := updated_count + 1;
         END IF;
     END LOOP;
     
-    RETURN rows_updated;
+    RETURN QUERY SELECT updated_count;
 END;
 $$ LANGUAGE plpgsql;
 
