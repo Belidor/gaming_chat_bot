@@ -7,21 +7,25 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/rs/zerolog"
+	"github.com/telegram-llm-bot/internal/embeddings"
 	"github.com/telegram-llm-bot/internal/llm"
 	"github.com/telegram-llm-bot/internal/models"
+	"github.com/telegram-llm-bot/internal/rag"
 	"github.com/telegram-llm-bot/internal/ratelimit"
 	"github.com/telegram-llm-bot/internal/storage"
 )
 
 // Bot represents the Telegram bot
 type Bot struct {
-	api       *tgbotapi.BotAPI
-	config    *models.BotConfig
-	storage   *storage.Client
-	llmClient *llm.Client
-	limiter   *ratelimit.Limiter
-	logger    zerolog.Logger
-	wg        sync.WaitGroup // Tracks active handlers for graceful shutdown
+	api              *tgbotapi.BotAPI
+	config           *models.BotConfig
+	storage          *storage.Client
+	llmClient        *llm.Client
+	embeddingsClient *embeddings.Client
+	ragSearcher      *rag.Searcher
+	limiter          *ratelimit.Limiter
+	logger           zerolog.Logger
+	wg               sync.WaitGroup // Tracks active handlers for graceful shutdown
 }
 
 // New creates a new bot instance
@@ -29,6 +33,8 @@ func New(
 	config *models.BotConfig,
 	storage *storage.Client,
 	llmClient *llm.Client,
+	embeddingsClient *embeddings.Client,
+	ragSearcher *rag.Searcher,
 	limiter *ratelimit.Limiter,
 	logger zerolog.Logger,
 ) (*Bot, error) {
@@ -44,15 +50,18 @@ func New(
 	logger.Info().
 		Str("username", api.Self.UserName).
 		Int64("id", api.Self.ID).
+		Bool("rag_enabled", config.RAG.Enabled).
 		Msg("Telegram bot authorized")
 
 	return &Bot{
-		api:       api,
-		config:    config,
-		storage:   storage,
-		llmClient: llmClient,
-		limiter:   limiter,
-		logger:    logger.With().Str("component", "bot").Logger(),
+		api:              api,
+		config:           config,
+		storage:          storage,
+		llmClient:        llmClient,
+		embeddingsClient: embeddingsClient,
+		ragSearcher:      ragSearcher,
+		limiter:          limiter,
+		logger:           logger.With().Str("component", "bot").Logger(),
 	}, nil
 }
 

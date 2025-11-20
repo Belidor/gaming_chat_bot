@@ -1,4 +1,4 @@
-.PHONY: help build run stop clean test docker-build docker-run docker-stop docker-logs docker-shell compose-up compose-down compose-logs compose-restart
+.PHONY: help build run stop clean test docker-build docker-run docker-stop docker-logs docker-shell compose-up compose-down compose-logs compose-restart embeddings embeddings-dry import test-rag test-rag-stats
 
 # Variables
 BINARY_NAME=telegram-llm-bot
@@ -13,6 +13,19 @@ help:
 	@echo "  make stop            - Stop the running bot"
 	@echo "  make clean           - Clean build artifacts"
 	@echo "  make test            - Run tests"
+	@echo ""
+	@echo "RAG/Embeddings commands:"
+	@echo "  make embeddings      - Generate embeddings for all unindexed messages"
+	@echo "  make embeddings-dry  - Dry run (show what would be processed)"
+	@echo "  make embeddings-batch BATCH=100 - Custom batch size"
+	@echo "  make embeddings-limit LIMIT=1000 - Process only N messages"
+	@echo "  make import FILE=result.json - Import Telegram export"
+	@echo "  make import FILE=result.json DRY_RUN=true - Import dry run"
+	@echo ""
+	@echo "RAG Testing commands:"
+	@echo "  make test-rag-stats  - Show RAG statistics and indexing status"
+	@echo "  make test-rag QUERY=\"вопрос\" - Test RAG search"
+	@echo "  make test-rag QUERY=\"вопрос\" TOP=5 THRESHOLD=0.7 - Custom params"
 	@echo ""
 	@echo "Docker commands:"
 	@echo "  make docker-build    - Build Docker image"
@@ -160,3 +173,57 @@ env-setup:
 	else \
 		echo ".env file already exists"; \
 	fi
+
+# Generate embeddings for all unindexed messages
+embeddings:
+	@echo "Generating embeddings for all unindexed messages..."
+	@go run scripts/generate_embeddings.go
+
+# Generate embeddings (dry run)
+embeddings-dry:
+	@echo "Running embeddings generation in dry-run mode..."
+	@go run scripts/generate_embeddings.go -dry-run
+
+# Generate embeddings with custom batch size
+embeddings-batch:
+	@echo "Generating embeddings with batch size $(BATCH)..."
+	@go run scripts/generate_embeddings.go -batch=$(BATCH)
+
+# Generate embeddings with limit
+embeddings-limit:
+	@echo "Generating embeddings with limit $(LIMIT)..."
+	@go run scripts/generate_embeddings.go -limit=$(LIMIT)
+
+# Import Telegram export JSON
+import:
+	@if [ -z "$(FILE)" ]; then \
+		echo "Usage: make import FILE=path/to/result.json"; \
+		echo "   or: make import FILE=path/to/result.json DRY_RUN=true"; \
+		exit 1; \
+	fi
+	@if [ "$(DRY_RUN)" = "true" ]; then \
+		echo "Importing (dry-run): $(FILE)..."; \
+		go run scripts/import_telegram_export.go -file=$(FILE) -dry-run; \
+	else \
+		echo "Importing: $(FILE)..."; \
+		go run scripts/import_telegram_export.go -file=$(FILE); \
+	fi
+
+# Test RAG search
+test-rag:
+	@if [ -z "$(QUERY)" ]; then \
+		echo "Usage: make test-rag QUERY=\"ваш вопрос\""; \
+		echo "   or: make test-rag QUERY=\"вопрос\" TOP=5 THRESHOLD=0.7"; \
+		echo ""; \
+		echo "Examples:"; \
+		echo "  make test-rag QUERY=\"Что говорили про игры?\""; \
+		echo "  make test-rag QUERY=\"крипта\" THRESHOLD=0.5"; \
+		go run scripts/test_rag.go; \
+	else \
+		go run scripts/test_rag.go -query="$(QUERY)" -top=$(or $(TOP),5) -threshold=$(or $(THRESHOLD),0.7); \
+	fi
+
+# Show RAG statistics
+test-rag-stats:
+	@echo "RAG System Statistics:"
+	@go run scripts/test_rag.go
