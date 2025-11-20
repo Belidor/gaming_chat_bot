@@ -69,6 +69,8 @@ func (b *Bot) handleCommand(ctx context.Context, message *tgbotapi.Message) {
 		b.handleHelpCommand(ctx, message)
 	case "sync":
 		b.handleSyncCommand(ctx, message)
+	case "migrate_history":
+		b.handleMigrateHistoryCommand(ctx, message)
 	default:
 		b.sendMessage(message.Chat.ID, "❓ Неизвестная команда. Используйте /help для списка команд.")
 	}
@@ -127,7 +129,8 @@ func (b *Bot) handleHelpCommand(ctx context.Context, message *tgbotapi.Message) 
 			"Просто упомяните меня (@%s) и задайте вопрос!\n\n"+
 			"*Доступные команды:*\n"+
 			"/stats - Посмотреть свою статистику\n"+
-			"/sync - Запустить синхронизацию RAG (только админы)\n"+
+			"/sync - Запустить индексацию новых сообщений\n"+
+			"/migrate_history - Инструкция по загрузке истории чата\n"+
 			"/help - Показать это сообщение\n\n"+
 			"*Лимиты:*\n"+
 			"• Gemini Pro (думающая модель): %d запросов/день\n"+
