@@ -153,8 +153,13 @@ func (c *Client) generate(ctx context.Context, req *models.LLMRequest) (*models.
 	model.SetTopK(c.config.LLMTopK)
 	model.SetMaxOutputTokens(c.config.LLMMaxTokens)
 
-	// Create prompt with length limitation
-	prompt := fmt.Sprintf(SystemPromptTemplate, req.Text)
+	// Create prompt with or without RAG context
+	var prompt string
+	if req.RAGContext != "" {
+		prompt = fmt.Sprintf(SystemPromptWithRAGTemplate, req.RAGContext, req.Text)
+	} else {
+		prompt = fmt.Sprintf(SystemPromptTemplate, req.Text)
+	}
 
 	c.logger.Debug().
 		Int64("user_id", req.UserID).
