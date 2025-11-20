@@ -48,3 +48,6 @@ cmd/bot/bot
 
 # Docker volumes
 .docker/
+ 
+ # data
+ data/data/

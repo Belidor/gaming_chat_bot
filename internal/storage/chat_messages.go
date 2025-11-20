@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/telegram-llm-bot/internal/models"
@@ -125,18 +126,38 @@ func (c *Client) BatchUpdateEmbeddings(ctx context.Context, ids []int64, embeddi
 
 	var rowsUpdated int
 
+	// Convert embeddings to PostgreSQL vector format: "[1.0, 2.0, 3.0]"
+	embeddingsStr := make([]string, len(embeddings))
+	for i, emb := range embeddings {
+		// Convert []float32 to string format
+		parts := make([]string, len(emb))
+		for j, val := range emb {
+			parts[j] = fmt.Sprintf("%v", val)
+		}
+		embeddingsStr[i] = "[" + strings.Join(parts, ",") + "]"
+	}
+
 	err := c.withRetry(ctx, "batch_update_embeddings", func() error {
-		// Call PostgreSQL function
+		// Call PostgreSQL function with string format vectors
 		data := c.client.Rpc("batch_update_embeddings", "", map[string]interface{}{
 			"p_message_ids": ids,
-			"p_embeddings":  embeddings,
+			"p_embeddings":  embeddingsStr,
 		})
 
 		if data == "" {
 			return fmt.Errorf("failed to batch update embeddings: RPC returned empty")
 		}
 
-		// Try to parse as single object first (Supabase returns object, not array)
+		c.logger.Debug().
+			Str("raw_response", data).
+			Msg("Raw RPC response")
+
+		// Try to parse as plain number first (Supabase RPC returns scalar)
+		if err := json.Unmarshal([]byte(data), &rowsUpdated); err == nil {
+			return nil
+		}
+
+		// Try to parse as single object
 		var result struct {
 			RowsUpdated int `json:"rows_updated"`
 		}
@@ -146,7 +167,7 @@ func (c *Client) BatchUpdateEmbeddings(ctx context.Context, ids []int64, embeddi
 			return nil
 		}
 		
-		// Fallback: try to parse as array (in case format changes)
+		// Fallback: try to parse as array
 		var results []struct {
 			RowsUpdated int `json:"rows_updated"`
 		}

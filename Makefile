@@ -1,4 +1,4 @@
-.PHONY: help build run stop clean test docker-build docker-run docker-stop docker-logs docker-shell compose-up compose-down compose-logs compose-restart
+.PHONY: help build run stop clean test docker-build docker-run docker-stop docker-logs docker-shell compose-up compose-down compose-logs compose-restart embeddings embeddings-dry import
 
 # Variables
 BINARY_NAME=telegram-llm-bot
@@ -13,6 +13,14 @@ help:
 	@echo "  make stop            - Stop the running bot"
 	@echo "  make clean           - Clean build artifacts"
 	@echo "  make test            - Run tests"
+	@echo ""
+	@echo "RAG/Embeddings commands:"
+	@echo "  make embeddings      - Generate embeddings for all unindexed messages"
+	@echo "  make embeddings-dry  - Dry run (show what would be processed)"
+	@echo "  make embeddings-batch BATCH=100 - Custom batch size"
+	@echo "  make embeddings-limit LIMIT=1000 - Process only N messages"
+	@echo "  make import FILE=result.json - Import Telegram export"
+	@echo "  make import FILE=result.json DRY_RUN=true - Import dry run"
 	@echo ""
 	@echo "Docker commands:"
 	@echo "  make docker-build    - Build Docker image"
@@ -159,4 +167,39 @@ env-setup:
 		echo "Please edit .env with your credentials"; \
 	else \
 		echo ".env file already exists"; \
+	fi
+
+# Generate embeddings for all unindexed messages
+embeddings:
+	@echo "Generating embeddings for all unindexed messages..."
+	@go run scripts/generate_embeddings.go
+
+# Generate embeddings (dry run)
+embeddings-dry:
+	@echo "Running embeddings generation in dry-run mode..."
+	@go run scripts/generate_embeddings.go -dry-run
+
+# Generate embeddings with custom batch size
+embeddings-batch:
+	@echo "Generating embeddings with batch size $(BATCH)..."
+	@go run scripts/generate_embeddings.go -batch=$(BATCH)
+
+# Generate embeddings with limit
+embeddings-limit:
+	@echo "Generating embeddings with limit $(LIMIT)..."
+	@go run scripts/generate_embeddings.go -limit=$(LIMIT)
+
+# Import Telegram export JSON
+import:
+	@if [ -z "$(FILE)" ]; then \
+		echo "Usage: make import FILE=path/to/result.json"; \
+		echo "   or: make import FILE=path/to/result.json DRY_RUN=true"; \
+		exit 1; \
+	fi
+	@if [ "$(DRY_RUN)" = "true" ]; then \
+		echo "Importing (dry-run): $(FILE)..."; \
+		go run scripts/import_telegram_export.go -file=$(FILE) -dry-run; \
+	else \
+		echo "Importing: $(FILE)..."; \
+		go run scripts/import_telegram_export.go -file=$(FILE); \
 	fi

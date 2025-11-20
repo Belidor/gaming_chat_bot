@@ -45,6 +45,16 @@ func Load() (*models.BotConfig, error) {
 		LLMTopP:        getEnvFloat32("LLM_TOP_P", 0.95),
 		LLMTopK:        getEnvInt32("LLM_TOP_K", 40),
 		LLMMaxTokens:   getEnvInt32("LLM_MAX_TOKENS", 8192),
+
+		// RAG Configuration
+		RAG: models.RAGConfig{
+			Enabled:             getEnvBool("RAG_ENABLED", true),
+			TopK:                getEnvInt("RAG_TOP_K", 5),
+			SimilarityThreshold: getEnvFloat64("RAG_SIMILARITY_THRESHOLD", 0.8),
+			MaxContextLength:    getEnvInt("RAG_MAX_CONTEXT_LENGTH", 2000),
+			EmbeddingsModel:     getEnv("RAG_EMBEDDINGS_MODEL", "text-embedding-004"),
+			EmbeddingsBatchSize: getEnvInt("RAG_EMBEDDINGS_BATCH_SIZE", 100),
+		},
 	}
 
 	// Validate configuration
@@ -194,4 +204,30 @@ func getEnvInt32(key string, defaultValue int32) int32 {
 		return defaultValue
 	}
 	return int32(value)
+}
+
+// getEnvFloat64 retrieves environment variable as float64 or returns default value
+func getEnvFloat64(key string, defaultValue float64) float64 {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return defaultValue
+	}
+	value, err := strconv.ParseFloat(valueStr, 64)
+	if err != nil {
+		return defaultValue
+	}
+	return value
+}
+
+// getEnvBool retrieves environment variable as bool or returns default value
+func getEnvBool(key string, defaultValue bool) bool {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return defaultValue
+	}
+	value, err := strconv.ParseBool(valueStr)
+	if err != nil {
+		return defaultValue
+	}
+	return value
 }
