@@ -1,12 +1,13 @@
 # Telegram LLM Bot
 
-A production-ready Telegram bot powered by Google Gemini AI with RAG (Retrieval-Augmented Generation) capabilities for context-aware responses based on chat history.
+A production-ready Telegram bot powered by Google Gemini AI with RAG (Retrieval-Augmented Generation) and automated daily summaries for group chat management.
 
 ## Features
 
 - **Google Gemini Integration**: Dual-model support (Gemini 2.0 Flash Thinking and Gemini 2.0 Flash)
 - **RAG System**: Vector search over entire chat history using pgvector and embeddings
 - **Context-Aware Responses**: Bot uses past discussions for more relevant answers
+- **Daily Summaries**: Automated chat summaries posted every morning at 7 AM MSK
 - **Smart Rate Limiting**: 5 Pro requests/day, 25 Flash requests/day per user
 - **Automatic Indexing**: Nightly synchronization of new messages (03:00 MSK)
 - **Supabase Integration**: PostgreSQL database with vector search capabilities
@@ -34,18 +35,19 @@ cd gaming_chat_bot
 
 2. **Set up Supabase database**
 
-Create a new project on Supabase and execute the SQL migrations:
+Create a new project on Supabase and execute the complete schema:
 
 ```sql
 -- Execute in Supabase SQL Editor
--- 1. Base schema
--- Copy and run: deployments/supabase/schema.sql
-
--- 2. RAG system (vector search)
--- Copy and run: deployments/supabase/rag_migration.sql
+-- Copy and run the entire: deployments/supabase/schema.sql
 ```
 
-The RAG migration automatically installs the `pgvector` extension.
+This single file creates all necessary tables, indexes, functions, and views:
+- `request_logs` - LLM request history
+- `daily_limits` - Rate limiting per user
+- `chat_messages` - All messages with vector embeddings for RAG
+- `daily_summaries` - Generated daily chat summaries
+- pgvector extension and all required functions
 
 3. **Configure environment variables**
 
@@ -69,10 +71,14 @@ GEMINI_API_KEY=your_gemini_api_key
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your_supabase_anon_or_service_key
 
-# RAG Configuration (optional)
+# RAG Configuration
 RAG_ENABLED=true
 RAG_TOP_K=5
 RAG_SIMILARITY_THRESHOLD=0.8
+
+# Summary Configuration
+SUMMARY_ENABLED=true
+SUMMARY_TIME=07:00
 ```
 
 4. **Run the bot**
@@ -91,25 +97,14 @@ go mod download
 go run cmd/bot/main.go
 ```
 
-5. **Index existing messages (first run)**
+5. **Initial setup**
 
-After the bot starts, run in your Telegram chat:
+After the bot starts, in your Telegram chat:
 
 ```
+# Index existing messages for RAG
 /sync
 ```
-
-This indexes all messages for RAG search. Subsequently, indexing happens automatically at 03:00 MSK.
-
-### Importing Historical Messages
-
-To import chat history from a Telegram Desktop JSON export:
-
-```bash
-go run scripts/import_telegram_export.go -file=path/to/result.json
-```
-
-The script automatically normalizes chat IDs and user IDs to match the Bot API format.
 
 ## Usage
 
@@ -127,7 +122,23 @@ Mention the bot in your group chat:
 @your_bot_username what is quantum physics?
 ```
 
-The bot responds using available AI models based on your daily limits and incorporates relevant chat history when RAG is enabled.
+The bot responds using available AI models and incorporates relevant chat history via RAG.
+
+### Daily Summaries
+
+Every day at 7:00 AM MSK, the bot automatically posts a summary of the previous day's discussion:
+
+```
+📊 Summary for January 15, 2025
+
+🗣️ Most discussed topics:
+• Project deadlines and milestones
+• New feature implementation details
+• Bug fixes in production
+
+💬 Total messages: 247
+🏆 Most active: @username (42 messages)
+```
 
 ### Example Interaction
 
@@ -167,14 +178,16 @@ Bot: 📊 Statistics for John
 | `GEMINI_API_KEY` | Yes | - | Google Gemini API key |
 | `SUPABASE_URL` | Yes | - | Supabase project URL |
 | `SUPABASE_KEY` | Yes | - | Supabase API key |
-| `TIMEZONE` | No | `Europe/Moscow` | Timezone for rate limit resets |
-| `LOG_LEVEL` | No | `info` | Logging level (debug, info, warn, error) |
+| `TIMEZONE` | No | `Europe/Moscow` | Timezone for schedules |
+| `LOG_LEVEL` | No | `info` | Logging level |
 | `ENVIRONMENT` | No | `production` | Environment name |
 | `PRO_DAILY_LIMIT` | No | `5` | Daily Pro model requests |
 | `FLASH_DAILY_LIMIT` | No | `25` | Daily Flash model requests |
 | `RAG_ENABLED` | No | `true` | Enable RAG system |
-| `RAG_TOP_K` | No | `5` | Number of relevant messages to retrieve |
-| `RAG_SIMILARITY_THRESHOLD` | No | `0.8` | Minimum similarity score (0.0-1.0) |
+| `RAG_TOP_K` | No | `5` | Number of relevant messages |
+| `RAG_SIMILARITY_THRESHOLD` | No | `0.8` | Similarity score (0.0-1.0) |
+| `SUMMARY_ENABLED` | No | `true` | Enable daily summaries |
+| `SUMMARY_TIME` | No | `07:00` | Time to post summaries (HH:MM) |
 
 ### Getting Chat ID
 
@@ -186,15 +199,15 @@ Bot: 📊 Statistics for John
 
 ## RAG System
 
-The bot uses Retrieval-Augmented Generation to provide context-aware responses.
+The bot uses Retrieval-Augmented Generation for context-aware responses.
 
 ### How It Works
 
-1. **Collection**: All chat messages are automatically saved to the database
-2. **Indexing**: Messages are converted to vector embeddings using Gemini's text-embedding-004 model
-3. **Retrieval**: When a question is asked, top-K relevant messages are found using cosine similarity
-4. **Augmentation**: Retrieved context is added to the LLM prompt
-5. **Generation**: Gemini generates a response informed by chat history
+1. **Collection**: All chat messages are automatically saved
+2. **Indexing**: Messages converted to vector embeddings (Gemini text-embedding-004)
+3. **Retrieval**: Top-K relevant messages found using cosine similarity
+4. **Augmentation**: Retrieved context added to LLM prompt
+5. **Generation**: Gemini generates informed response
 
 ### Architecture
 
@@ -219,6 +232,26 @@ User Question → RAG Search (Top-5 Similar)
 - **Batch Processing**: 100 messages per batch
 - **Storage**: ~1KB per message (text + 768-dim vector)
 
+## Daily Summaries
+
+Automated chat digests posted every morning.
+
+### Features
+
+- **Topic Analysis**: Identifies main discussion themes
+- **Activity Stats**: Message counts and active users
+- **Most Active User**: Recognizes top contributor
+- **Duplicate Prevention**: One summary per day per chat
+- **Configurable Schedule**: Adjust posting time via `SUMMARY_TIME`
+
+### How It Works
+
+1. At 7:00 AM MSK, bot analyzes previous day's messages
+2. Generates summary using Gemini with context from all messages
+3. Identifies most active participant
+4. Posts formatted summary to chat
+5. Stores in database to prevent regeneration
+
 ## Development
 
 ### Project Structure
@@ -232,11 +265,11 @@ gaming_chat_bot/
 │   ├── embeddings/       # Gemini embeddings client
 │   ├── llm/              # Gemini LLM client
 │   ├── models/           # Data structures
-│   ├── rag/              # RAG search implementation
 │   ├── ratelimit/        # Rate limiting logic
 │   ├── scheduler/        # Cron job scheduler
-│   └── storage/          # Supabase integration
-├── deployments/supabase/ # Database schemas
+│   ├── storage/          # Supabase integration
+│   └── summary/          # Summary generation
+├── deployments/supabase/ # Complete database schema
 ├── scripts/              # Utility scripts
 ├── Dockerfile
 ├── docker-compose.yml
@@ -252,29 +285,32 @@ make build
 # Build Docker image
 make docker-build
 
-# Run tests (when available)
+# Run tests
 make test
 
 # Format code
 go fmt ./...
-
-# Run linter
-golangci-lint run
 ```
 
 ### Database Schema
 
-**Main Tables:**
-
+**Tables:**
 - `request_logs`: All user requests and responses
 - `daily_limits`: Per-user daily rate limits
-- `chat_messages`: All chat messages with vector embeddings
+- `chat_messages`: All messages with vector embeddings
+- `daily_summaries`: Generated daily chat summaries
 
 **Key Functions:**
-
 - `get_daily_limit(user_id, date)`: Get current user limits
 - `increment_daily_limit(user_id, date, model)`: Atomic limit increment
-- `search_similar_messages(query_embedding, top_k, threshold)`: Vector similarity search
+- `search_similar_messages(query_embedding, top_k, threshold)`: Vector search
+- `get_unindexed_messages(batch_size)`: Get messages pending indexing
+- `batch_update_embeddings(ids[], embeddings[])`: Batch embedding updates
+
+**Views:**
+- `daily_statistics`: Aggregated bot usage stats
+- `rag_statistics`: RAG indexing status
+- `daily_message_stats`: Daily message statistics
 
 See `SPECIFICATION.md` for detailed technical documentation.
 
@@ -293,8 +329,13 @@ docker logs -f telegram-llm-bot
 ### Database Queries
 
 ```sql
--- Overall statistics
+-- Overall RAG statistics
 SELECT * FROM rag_statistics;
+
+-- Recent summaries
+SELECT * FROM daily_summaries 
+ORDER BY date DESC 
+LIMIT 7;
 
 -- Daily message statistics
 SELECT * FROM daily_message_stats 
@@ -302,10 +343,10 @@ ORDER BY date DESC
 LIMIT 7;
 
 -- Top users by requests
-SELECT username, first_name, COUNT(*) as total_requests
+SELECT username, COUNT(*) as total
 FROM request_logs
-GROUP BY username, first_name
-ORDER BY total_requests DESC
+GROUP BY username
+ORDER BY total DESC
 LIMIT 10;
 ```
 
@@ -313,7 +354,7 @@ LIMIT 10;
 
 ### Bot doesn't respond
 
-- Verify the bot is added to the group
+- Verify bot is added to the group
 - Check `TELEGRAM_ALLOWED_CHAT_IDS` contains the correct chat ID
 - Review logs: `docker-compose logs -f`
 
@@ -321,7 +362,14 @@ LIMIT 10;
 
 - Run `/sync` to index messages
 - Lower `RAG_SIMILARITY_THRESHOLD` to 0.6-0.7
-- Check indexing status: `SELECT * FROM rag_statistics;` in Supabase
+- Check indexing: `SELECT * FROM rag_statistics;` in Supabase
+
+### Daily summary not posting
+
+- Verify `SUMMARY_ENABLED=true` in config
+- Check scheduler logs for errors
+- Ensure bot has permission to post in chat
+- Verify timezone setting matches expected schedule
 
 ### Rate limit errors
 

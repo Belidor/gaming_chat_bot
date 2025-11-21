@@ -144,11 +144,17 @@ compose-restart:
 
 # Docker Compose rebuild and restart
 compose-rebuild:
-	@echo "Rebuilding and restarting services..."
+	@echo "🛑 Stopping containers..."
 	docker-compose down
+	@echo "🔨 Building containers (no cache)..."
 	docker-compose build --no-cache
+	@echo "🚀 Starting containers..."
 	docker-compose up -d
-	@echo "Services rebuilt and restarted"
+	@echo "✅ Services rebuilt and restarted"
+	@echo "📋 To view logs: make compose-logs"
+
+# Quick rebuild alias
+rebuild: compose-rebuild
 
 # Install dependencies
 deps:

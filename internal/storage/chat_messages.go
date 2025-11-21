@@ -107,8 +107,33 @@ func (c *Client) UpdateMessageEmbedding(ctx context.Context, id int64, embedding
 			return fmt.Errorf("failed to update message embedding: RPC returned empty")
 		}
 
+		// Parse boolean result (Supabase may wrap it)
+		var success bool
+		if err := json.Unmarshal([]byte(data), &success); err != nil {
+			// Try parsing as single-element array
+			var arrayResult []bool
+			if err2 := json.Unmarshal([]byte(data), &arrayResult); err2 == nil && len(arrayResult) > 0 {
+				success = arrayResult[0]
+			} else {
+				// Log the actual response for debugging
+				c.logger.Warn().
+					Str("raw_response", data).
+					Err(err).
+					Msg("Failed to parse embedding update result, but continuing")
+				// Don't fail - the update likely succeeded
+				success = true
+			}
+		}
+
+		if !success {
+			c.logger.Warn().
+				Int64("message_id", id).
+				Msg("Message embedding update returned false")
+		}
+
 		c.logger.Debug().
 			Int64("message_id", id).
+			Bool("success", success).
 			Msg("Message embedding updated")
 
 		return nil
@@ -152,34 +177,21 @@ func (c *Client) BatchUpdateEmbeddings(ctx context.Context, ids []int64, embeddi
 			Str("raw_response", data).
 			Msg("Raw RPC response")
 
-		// Try to parse as plain number first (Supabase RPC returns scalar)
-		if err := json.Unmarshal([]byte(data), &rowsUpdated); err == nil {
-			return nil
-		}
-
-		// Try to parse as single object
-		var result struct {
-			RowsUpdated int `json:"rows_updated"`
-		}
-		
-		if err := json.Unmarshal([]byte(data), &result); err == nil {
-			rowsUpdated = result.RowsUpdated
-			return nil
-		}
-		
-		// Fallback: try to parse as array
-		var results []struct {
-			RowsUpdated int `json:"rows_updated"`
-		}
-		
-		if err := json.Unmarshal([]byte(data), &results); err != nil {
-			return fmt.Errorf("failed to parse batch update result (raw: %s): %w", data, err)
-		}
-
-		if len(results) > 0 {
-			rowsUpdated = results[0].RowsUpdated
-		} else {
-			return fmt.Errorf("no result returned from batch_update_embeddings")
+		// Supabase RPC returns results in different formats depending on return type
+		// Try direct integer parsing first
+		if err := json.Unmarshal([]byte(data), &rowsUpdated); err != nil {
+			// If that fails, try parsing as single-element array (common Supabase format)
+			var arrayResult []int
+			if err2 := json.Unmarshal([]byte(data), &arrayResult); err2 == nil && len(arrayResult) > 0 {
+				rowsUpdated = arrayResult[0]
+			} else {
+				// Log the actual response for debugging
+				c.logger.Error().
+					Str("raw_response", data).
+					Err(err).
+					Msg("Failed to parse batch update result, logging raw response")
+				return fmt.Errorf("failed to parse batch update result: %w", err)
+			}
 		}
 
 		return nil

@@ -42,8 +42,11 @@ func (b *Bot) handleMessage(ctx context.Context, message *tgbotapi.Message) {
 		return
 	}
 
-	// Save ALL messages to chat_messages for RAG (async, non-blocking)
-	go b.saveChatMessage(ctx, message)
+	// Save ALL messages from allowed chats to database for RAG and summaries
+	// This is critical for the RAG system and daily summaries to work
+	if message.Text != "" && message.From != nil {
+		b.saveChatMessage(ctx, message)
+	}
 
 	// Check if message contains bot mention
 	if b.isMentioned(message) {
@@ -67,10 +70,10 @@ func (b *Bot) handleCommand(ctx context.Context, message *tgbotapi.Message) {
 		b.handleStatsCommand(ctx, message)
 	case "start", "help":
 		b.handleHelpCommand(ctx, message)
+	case "summary":
+		b.handleSummaryCommand(ctx, message)
 	case "sync":
 		b.handleSyncCommand(ctx, message)
-	case "migrate_history":
-		b.handleMigrateHistoryCommand(ctx, message)
 	default:
 		b.sendMessage(message.Chat.ID, "❓ Неизвестная команда. Используйте /help для списка команд.")
 	}
@@ -118,33 +121,101 @@ func (b *Bot) handleStatsCommand(ctx context.Context, message *tgbotapi.Message)
 
 // handleHelpCommand handles /help and /start commands
 func (b *Bot) handleHelpCommand(ctx context.Context, message *tgbotapi.Message) {
-	ragStatus := "отключен ❌"
-	if b.config.RAG.Enabled {
-		ragStatus = "включен ✅"
-	}
-
 	helpMsg := fmt.Sprintf(
 		"👋 *Привет! Я бот с AI ассистентом*\n\n"+
 			"*Как использовать:*\n"+
 			"Просто упомяните меня (@%s) и задайте вопрос!\n\n"+
 			"*Доступные команды:*\n"+
 			"/stats - Посмотреть свою статистику\n"+
-			"/sync - Запустить индексацию новых сообщений\n"+
-			"/migrate_history - Инструкция по загрузке истории чата\n"+
+			"/summary - Сгенерировать саммари за вчерашний день\n"+
+			"/sync - Запустить синхронизацию RAG (индексация сообщений)\n"+
 			"/help - Показать это сообщение\n\n"+
 			"*Лимиты:*\n"+
 			"• Gemini Pro (думающая модель): %d запросов/день\n"+
 			"• Gemini Flash (быстрая модель): %d запросов/день\n\n"+
-			"*RAG (поиск по истории чата):* %s\n\n"+
 			"Сначала используются запросы к Pro модели, затем к Flash.\n"+
-			"Лимиты сбрасываются в полночь по московскому времени.",
+			"Лимиты сбрасываются в полночь по московскому времени.\n\n"+
+			"*Автоматические задачи:*\n"+
+			"• 03:00 МСК - Синхронизация RAG (индексация embeddings)\n"+
+			"• 07:00 МСК - Ежедневное саммари",
 		b.config.TelegramUsername,
 		b.config.ProDailyLimit,
 		b.config.FlashDailyLimit,
-		ragStatus,
 	)
 
 	b.sendMessage(message.Chat.ID, helpMsg)
+}
+
+// handleSummaryCommand handles /summary command - generates summary for yesterday
+func (b *Bot) handleSummaryCommand(ctx context.Context, message *tgbotapi.Message) {
+	chatID := message.Chat.ID
+
+	// Only allow in allowed chats
+	if !b.config.IsAllowedChat(chatID) {
+		b.sendMessage(chatID, "❌ Эта команда доступна только в разрешенных чатах.")
+		return
+	}
+
+	b.logger.Info().
+		Int64("chat_id", chatID).
+		Int64("user_id", message.From.ID).
+		Str("username", message.From.UserName).
+		Msg("Manual summary generation requested")
+
+	// Send "generating" message
+	b.sendMessage(chatID, "⏳ Генерирую саммари за вчерашний день...")
+
+	// Trigger summary generation callback if available
+	if b.summaryCallback != nil {
+		if err := b.summaryCallback(chatID); err != nil {
+			b.logger.Error().
+				Err(err).
+				Int64("chat_id", chatID).
+				Msg("Failed to generate manual summary")
+			b.sendMessage(chatID, "❌ Ошибка при генерации саммари. Попробуйте позже.")
+			return
+		}
+	} else {
+		b.sendMessage(chatID, "❌ Функция саммари не настроена.")
+	}
+}
+
+// handleSyncCommand handles /sync command - manual RAG synchronization
+func (b *Bot) handleSyncCommand(ctx context.Context, message *tgbotapi.Message) {
+	chatID := message.Chat.ID
+
+	// Only allow in allowed chats
+	if !b.config.IsAllowedChat(chatID) {
+		b.sendMessage(chatID, "❌ Эта команда доступна только в разрешенных чатах.")
+		return
+	}
+
+	b.logger.Info().
+		Int64("chat_id", chatID).
+		Int64("user_id", message.From.ID).
+		Str("username", message.From.UserName).
+		Msg("Manual RAG sync requested")
+
+	// Send "starting" message
+	b.sendMessage(chatID, "🔄 Запускаю синхронизацию RAG...\n\nЭто может занять несколько минут.")
+
+	// Trigger sync callback if available
+	if b.syncCallback != nil {
+		// Run in goroutine to not block
+		go func() {
+			if err := b.syncCallback(); err != nil {
+				b.logger.Error().
+					Err(err).
+					Int64("chat_id", chatID).
+					Msg("Failed to run manual sync")
+				b.sendMessage(chatID, "❌ Ошибка при синхронизации. Попробуйте позже.")
+			} else {
+				b.sendMessage(chatID, "✅ Синхронизация завершена успешно!")
+			}
+		}()
+	} else {
+		b.sendMessage(chatID, "❌ Функция синхронизации не настроена.")
+	}
 }
 
 // handleMention processes messages where bot is mentioned
@@ -187,30 +258,6 @@ func (b *Bot) handleMention(ctx context.Context, message *tgbotapi.Message) {
 	// Send typing action
 	b.sendTypingAction(chatID)
 
-	// Perform RAG search if enabled
-	var ragContext string
-	if b.config.RAG.Enabled {
-		b.logger.Debug().
-			Str("query", questionText[:min(50, len(questionText))]).
-			Msg("Performing RAG search")
-
-		ragResult, err := b.ragSearcher.Search(ctx, questionText, chatID)
-		if err != nil {
-			b.logger.Error().
-				Err(err).
-				Int64("user_id", userID).
-				Msg("RAG search failed, continuing without context")
-			// Continue without RAG context on error
-			ragContext = ""
-		} else {
-			ragContext = ragResult.Context
-			b.logger.Info().
-				Int("results_count", ragResult.Count).
-				Int64("user_id", userID).
-				Msg("RAG search completed")
-		}
-	}
-
 	// Check rate limits
 	limitResult, err := b.limiter.CheckLimit(ctx, userID)
 	if err != nil {
@@ -228,14 +275,13 @@ func (b *Bot) handleMention(ctx context.Context, message *tgbotapi.Message) {
 		return
 	}
 
-	// Create LLM request with RAG context
+	// Create LLM request
 	llmReq := &models.LLMRequest{
 		UserID:      userID,
 		Username:    username,
 		FirstName:   firstName,
 		ChatID:      chatID,
 		Text:        questionText,
-		RAGContext:  ragContext,
 		ModelType:   limitResult.ModelToUse,
 		TimeoutSecs: b.config.GeminiTimeout,
 	}
@@ -358,133 +404,4 @@ func (b *Bot) extractQuestion(message *tgbotapi.Message) string {
 	text = strings.TrimSpace(text)
 
 	return text
-}
-
-// saveChatMessage saves a message to chat_messages table for RAG
-func (b *Bot) saveChatMessage(ctx context.Context, message *tgbotapi.Message) {
-	// Skip if message has no text
-	if message.Text == "" {
-		return
-	}
-
-	// Create chat message
-	chatMsg := &models.ChatMessage{
-		MessageID:   int64(message.MessageID),
-		UserID:      message.From.ID,
-		Username:    message.From.UserName,
-		FirstName:   message.From.FirstName,
-		ChatID:      message.Chat.ID,
-		MessageText: message.Text,
-		Indexed:     false,
-		CreatedAt:   message.Time(),
-	}
-
-	// Save to database
-	if err := b.storage.SaveChatMessage(ctx, chatMsg); err != nil {
-		b.logger.Error().
-			Err(err).
-			Int64("message_id", int64(message.MessageID)).
-			Int64("user_id", message.From.ID).
-			Msg("Failed to save chat message")
-	} else {
-		b.logger.Debug().
-			Int64("message_id", int64(message.MessageID)).
-			Int64("user_id", message.From.ID).
-			Msg("Chat message saved successfully")
-	}
-}
-
-// handleSyncCommand handles /sync command (manual RAG synchronization)
-func (b *Bot) handleSyncCommand(ctx context.Context, message *tgbotapi.Message) {
-	// TODO: Add admin check here
-	// For now, anyone can trigger sync
-
-	b.sendMessage(message.Chat.ID, "🔄 Запускаю синхронизацию RAG...\n\nЭто может занять несколько минут.")
-
-	b.logger.Info().
-		Int64("user_id", message.From.ID).
-		Str("username", message.From.UserName).
-		Msg("Manual RAG sync requested")
-
-	// Run sync in background
-	go b.runManualSync(context.Background(), message.Chat.ID, message.From.ID)
-}
-
-// runManualSync runs manual RAG synchronization
-func (b *Bot) runManualSync(ctx context.Context, chatID, userID int64) {
-	startTime := time.Now()
-
-	// Get unindexed messages
-	limit := 1000
-	messages, err := b.storage.GetUnindexedMessages(ctx, limit)
-	if err != nil {
-		b.logger.Error().
-			Err(err).
-			Msg("Failed to get unindexed messages")
-		b.sendMessage(chatID, "❌ Ошибка при получении неиндексированных сообщений")
-		return
-	}
-
-	if len(messages) == 0 {
-		b.sendMessage(chatID, "✅ Все сообщения уже проиндексированы!")
-		return
-	}
-
-	b.logger.Info().
-		Int("count", len(messages)).
-		Msg("Processing unindexed messages")
-
-	// Extract texts for embedding
-	texts := make([]string, len(messages))
-	ids := make([]int64, len(messages))
-	for i, msg := range messages {
-		texts[i] = msg.MessageText
-		ids[i] = msg.ID
-	}
-
-	// Generate embeddings in batch
-	embeddings, err := b.embeddingsClient.GenerateEmbeddingsBatch(ctx, texts)
-	if err != nil {
-		b.logger.Error().
-			Err(err).
-			Msg("Failed to generate embeddings")
-		b.sendMessage(chatID, "❌ Ошибка при генерации эмбеддингов")
-		return
-	}
-
-	// Update messages with embeddings
-	updated, err := b.storage.BatchUpdateEmbeddings(ctx, ids, embeddings)
-	if err != nil {
-		b.logger.Error().
-			Err(err).
-			Msg("Failed to update embeddings")
-		b.sendMessage(chatID, "❌ Ошибка при обновлении эмбеддингов")
-		return
-	}
-
-	duration := time.Since(startTime)
-
-	b.logger.Info().
-		Int("updated", updated).
-		Dur("duration", duration).
-		Int64("user_id", userID).
-		Msg("Manual sync completed")
-
-	msg := fmt.Sprintf(
-		"✅ Синхронизация завершена!\n\n"+
-			"Проиндексировано сообщений: %d\n"+
-			"Время выполнения: %.1f сек",
-		updated,
-		duration.Seconds(),
-	)
-
-	b.sendMessage(chatID, msg)
-}
-
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
