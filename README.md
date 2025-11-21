@@ -1,62 +1,68 @@
 # Telegram LLM Bot
 
-Telegram бот с интеграцией Google Gemini AI для группового чата с системой rate limiting и логированием в Supabase.
+A production-ready Telegram bot powered by Google Gemini AI with RAG (Retrieval-Augmented Generation) and automated daily summaries for group chat management.
 
-## 🚀 Возможности
+## Features
 
-- **Интеграция с Google Gemini**: Использует модели Gemini 2.0 Flash Thinking (Pro) и Gemini 2.0 Flash
-- **Умная система лимитов**: 5 запросов/день к Pro модели, 25 запросов/день к Flash модели
-- **Автоматическое переключение моделей**: Сначала используется Pro, затем Flash
-- **Логирование в Supabase**: Все запросы сохраняются в PostgreSQL базу данных
-- **Статистика использования**: Команда `/stats` показывает персональную статистику
-- **Graceful shutdown**: Корректное завершение работы при остановке
-- **Docker support**: Полная контейнеризация для легкого деплоя
-- **Rate limiting по часовому поясу**: Лимиты сбрасываются в полночь по московскому времени
+- **Google Gemini Integration**: Dual-model support (Gemini 2.0 Flash Thinking and Gemini 2.0 Flash)
+- **RAG System**: Vector search over entire chat history using pgvector and embeddings
+- **Context-Aware Responses**: Bot uses past discussions for more relevant answers
+- **Daily Summaries**: Automated chat summaries posted every morning at 7 AM MSK
+- **Smart Rate Limiting**: 5 Pro requests/day, 25 Flash requests/day per user
+- **Automatic Indexing**: Nightly synchronization of new messages (03:00 MSK)
+- **Supabase Integration**: PostgreSQL database with vector search capabilities
+- **Docker Support**: Full containerization for easy deployment
+- **Graceful Shutdown**: Proper cleanup on termination
+- **Structured Logging**: JSON logging with zerolog
 
-## 📋 Требования
+## Quick Start
 
-- Go 1.21+ (для локальной разработки)
-- Docker и Docker Compose (для продакшена)
-- Telegram Bot Token (от [@BotFather](https://t.me/BotFather))
-- Google Gemini API Key (от [Google AI Studio](https://makersuite.google.com/app/apikey))
-- Supabase проект (от [Supabase](https://supabase.com))
+### Prerequisites
 
-## 🛠 Установка
+- Docker and Docker Compose (recommended) or Go 1.21+
+- Telegram Bot Token (from [@BotFather](https://t.me/BotFather))
+- Google Gemini API Key (from [Google AI Studio](https://makersuite.google.com/app/apikey))
+- Supabase account (from [Supabase](https://supabase.com))
 
-### 1. Клонируйте репозиторий
+### Installation
+
+1. **Clone the repository**
 
 ```bash
 git clone <repository-url>
-cd telegram-llm-bot
+cd gaming_chat_bot
 ```
 
-### 2. Создайте базу данных в Supabase
+2. **Set up Supabase database**
 
-1. Создайте проект в [Supabase](https://supabase.com)
-2. Откройте SQL Editor в вашем проекте
-3. Выполните SQL скрипт из `deployments/supabase/schema.sql`
+Create a new project on Supabase and execute the complete schema:
 
 ```sql
--- Скопируйте и выполните содержимое файла deployments/supabase/schema.sql
+-- Execute in Supabase SQL Editor
+-- Copy and run the entire: deployments/supabase/schema.sql
 ```
 
-### 3. Настройте переменные окружения
+This single file creates all necessary tables, indexes, functions, and views:
+- `request_logs` - LLM request history
+- `daily_limits` - Rate limiting per user
+- `chat_messages` - All messages with vector embeddings for RAG
+- `daily_summaries` - Generated daily chat summaries
+- pgvector extension and all required functions
+
+3. **Configure environment variables**
 
 ```bash
-# Создайте .env файл из примера
 cp .env.example .env
-
-# Отредактируйте .env файл
 nano .env
 ```
 
-Заполните следующие обязательные параметры:
+Required configuration:
 
 ```env
 # Telegram Bot Configuration
 TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
 TELEGRAM_BOT_USERNAME=your_bot_username
-TELEGRAM_ALLOWED_CHAT_IDS=-1001234567890,-1009876543210  # ID разрешенных чатов (через запятую)
+TELEGRAM_ALLOWED_CHAT_IDS=-1001234567890  # Comma-separated chat IDs
 
 # Google Gemini API
 GEMINI_API_KEY=your_gemini_api_key
@@ -64,246 +70,253 @@ GEMINI_API_KEY=your_gemini_api_key
 # Supabase Configuration
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your_supabase_anon_or_service_key
+
+# RAG Configuration
+RAG_ENABLED=true
+RAG_TOP_K=5
+RAG_SIMILARITY_THRESHOLD=0.8
+
+# Summary Configuration
+SUMMARY_ENABLED=true
+SUMMARY_TIME=07:00
 ```
 
-#### Как получить Chat ID группы:
+4. **Run the bot**
 
-1. Добавьте бота в группу (или группы)
-2. Отправьте любое сообщение в группу
-3. Откройте: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
-4. Найдите `"chat":{"id":-1001234567890}` - это Chat ID группы
-5. Для нескольких чатов укажите их через запятую: `-1001234567890,-1009876543210`
-
-### 4. Запустите бота
-
-#### Вариант A: Docker Compose (рекомендуется)
+**Option A: Docker Compose (recommended)**
 
 ```bash
-# Запустите бота
 docker-compose up -d
-
-# Просмотрите логи
 docker-compose logs -f
-
-# Остановите бота
-docker-compose down
 ```
 
-#### Вариант B: Локально
+**Option B: Local development**
 
 ```bash
-# Установите зависимости
 go mod download
-
-# Запустите бота
 go run cmd/bot/main.go
-
-# Или соберите и запустите
-make build
-./telegram-llm-bot
 ```
 
-## 📝 Использование
+5. **Initial setup**
 
-### Команды бота
-
-- `/start` или `/help` - Показать справку
-- `/stats` - Показать свою статистику использования
-
-### Как задать вопрос
-
-Просто упомяните бота в сообщении:
+After the bot starts, in your Telegram chat:
 
 ```
-@your_bot_username расскажи про Go язык программирования
+# Index existing messages for RAG
+/sync
 ```
 
-Бот ответит, используя доступную модель (Pro или Flash), в зависимости от ваших лимитов.
+## Usage
 
-### Примеры взаимодействия
+### Bot Commands
+
+- `/start` or `/help` - Show help message
+- `/stats` - Display your usage statistics
+- `/sync` - Manually trigger message indexing for RAG
+
+### Asking Questions
+
+Mention the bot in your group chat:
 
 ```
-Пользователь: @mybot что такое квантовая физика?
-Бот: [ответ от Gemini Pro]
-     🤖 Модель: gemini-2.5-pro | Время: 2500мс
+@your_bot_username what is quantum physics?
+```
 
-Пользователь: /stats
-Бот: 📊 Статистика для Иван
+The bot responds using available AI models and incorporates relevant chat history via RAG.
+
+### Daily Summaries
+
+Every day at 7:00 AM MSK, the bot automatically posts a summary of the previous day's discussion:
+
+```
+📊 Summary for January 15, 2025
+
+🗣️ Most discussed topics:
+• Project deadlines and milestones
+• New feature implementation details
+• Bug fixes in production
+
+💬 Total messages: 247
+🏆 Most active: @username (42 messages)
+```
+
+### Example Interaction
+
+```
+User: @mybot what did we discuss about Go yesterday?
+Bot: Based on the chat history:
+     - Alex mentioned using VS Code for Go development
+     - Maria recommended GoLand for its debugging features
+     - The team discussed migrating to Go 1.21
+     
+     🤖 Model: gemini-2.0-flash | Time: 1800ms
+
+User: /stats
+Bot: 📊 Statistics for John
      
      🤖 Gemini Pro (Thinking):
-        Использовано: 3/5
-        Осталось: 2
+        Used: 3/5
+        Remaining: 2
      
      ⚡ Gemini Flash:
-        Использовано: 0/25
-        Осталось: 25
+        Used: 5/25
+        Remaining: 20
      
-     📈 Всего запросов: 45
-     ⏰ Сброс лимитов через: 8 ч.
+     📈 Total requests: 45
+     ⏰ Limits reset in: 8 hours
 ```
 
-## 🔧 Разработка
+## Configuration
 
-### Структура проекта
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | Yes | - | Bot token from BotFather |
+| `TELEGRAM_BOT_USERNAME` | Yes | - | Bot username without @ |
+| `TELEGRAM_ALLOWED_CHAT_IDS` | Yes | - | Comma-separated allowed chat IDs |
+| `GEMINI_API_KEY` | Yes | - | Google Gemini API key |
+| `SUPABASE_URL` | Yes | - | Supabase project URL |
+| `SUPABASE_KEY` | Yes | - | Supabase API key |
+| `TIMEZONE` | No | `Europe/Moscow` | Timezone for schedules |
+| `LOG_LEVEL` | No | `info` | Logging level |
+| `ENVIRONMENT` | No | `production` | Environment name |
+| `PRO_DAILY_LIMIT` | No | `5` | Daily Pro model requests |
+| `FLASH_DAILY_LIMIT` | No | `25` | Daily Flash model requests |
+| `RAG_ENABLED` | No | `true` | Enable RAG system |
+| `RAG_TOP_K` | No | `5` | Number of relevant messages |
+| `RAG_SIMILARITY_THRESHOLD` | No | `0.8` | Similarity score (0.0-1.0) |
+| `SUMMARY_ENABLED` | No | `true` | Enable daily summaries |
+| `SUMMARY_TIME` | No | `07:00` | Time to post summaries (HH:MM) |
+
+### Getting Chat ID
+
+1. Add your bot to a group
+2. Send any message in the group
+3. Visit: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
+4. Find `"chat":{"id":-1001234567890}` in the response
+5. Use this ID in `TELEGRAM_ALLOWED_CHAT_IDS`
+
+## RAG System
+
+The bot uses Retrieval-Augmented Generation for context-aware responses.
+
+### How It Works
+
+1. **Collection**: All chat messages are automatically saved
+2. **Indexing**: Messages converted to vector embeddings (Gemini text-embedding-004)
+3. **Retrieval**: Top-K relevant messages found using cosine similarity
+4. **Augmentation**: Retrieved context added to LLM prompt
+5. **Generation**: Gemini generates informed response
+
+### Architecture
 
 ```
-telegram-llm-bot/
-├── cmd/bot/              # Точка входа приложения
+User Message → Save to DB
+                    ↓
+            Nightly Sync (03:00 MSK)
+                    ↓
+         Generate Embeddings → Store Vectors
+                    ↓
+User Question → RAG Search (Top-5 Similar)
+                    ↓
+         Context + Question → LLM
+                    ↓
+              Contextual Response
+```
+
+### Performance
+
+- **Vector Search**: ~200-500ms for 50k+ messages
+- **Embedding Generation**: ~100-300ms per message
+- **Batch Processing**: 100 messages per batch
+- **Storage**: ~1KB per message (text + 768-dim vector)
+
+## Daily Summaries
+
+Automated chat digests posted every morning.
+
+### Features
+
+- **Topic Analysis**: Identifies main discussion themes
+- **Activity Stats**: Message counts and active users
+- **Most Active User**: Recognizes top contributor
+- **Duplicate Prevention**: One summary per day per chat
+- **Configurable Schedule**: Adjust posting time via `SUMMARY_TIME`
+
+### How It Works
+
+1. At 7:00 AM MSK, bot analyzes previous day's messages
+2. Generates summary using Gemini with context from all messages
+3. Identifies most active participant
+4. Posts formatted summary to chat
+5. Stores in database to prevent regeneration
+
+## Development
+
+### Project Structure
+
+```
+gaming_chat_bot/
+├── cmd/bot/              # Application entry point
 ├── internal/
-│   ├── bot/              # Telegram bot логика
-│   ├── config/           # Конфигурация
-│   ├── llm/              # Gemini API клиент
-│   ├── models/           # Типы данных
-│   ├── ratelimit/        # Rate limiting
-│   └── storage/          # Supabase интеграция
-├── deployments/
-│   ├── docker/           # Docker файлы
-│   └── supabase/         # SQL схемы
+│   ├── bot/              # Telegram bot logic
+│   ├── config/           # Configuration management
+│   ├── embeddings/       # Gemini embeddings client
+│   ├── llm/              # Gemini LLM client
+│   ├── models/           # Data structures
+│   ├── ratelimit/        # Rate limiting logic
+│   ├── scheduler/        # Cron job scheduler
+│   ├── storage/          # Supabase integration
+│   └── summary/          # Summary generation
+├── deployments/supabase/ # Complete database schema
+├── scripts/              # Utility scripts
 ├── Dockerfile
 ├── docker-compose.yml
-├── Makefile
-└── README.md
+└── Makefile
 ```
 
-### Доступные Make команды
+### Building
 
 ```bash
-make help              # Показать все команды
-make build             # Собрать бинарник
-make run               # Запустить локально
-make test              # Запустить тесты
-make docker-build      # Собрать Docker образ
-make compose-up        # Запустить через docker-compose
-make compose-logs      # Посмотреть логи
-make compose-down      # Остановить сервисы
+# Build binary
+make build
+
+# Build Docker image
+make docker-build
+
+# Run tests
+make test
+
+# Format code
+go fmt ./...
 ```
 
-## 🐳 Docker
+### Database Schema
 
-### Собрать образ
+**Tables:**
+- `request_logs`: All user requests and responses
+- `daily_limits`: Per-user daily rate limits
+- `chat_messages`: All messages with vector embeddings
+- `daily_summaries`: Generated daily chat summaries
 
-```bash
-docker build -t telegram-llm-bot .
-```
+**Key Functions:**
+- `get_daily_limit(user_id, date)`: Get current user limits
+- `increment_daily_limit(user_id, date, model)`: Atomic limit increment
+- `search_similar_messages(query_embedding, top_k, threshold)`: Vector search
+- `get_unindexed_messages(batch_size)`: Get messages pending indexing
+- `batch_update_embeddings(ids[], embeddings[])`: Batch embedding updates
 
-### Запустить контейнер
+**Views:**
+- `daily_statistics`: Aggregated bot usage stats
+- `rag_statistics`: RAG indexing status
+- `daily_message_stats`: Daily message statistics
 
-```bash
-docker run -d \
-  --name telegram-llm-bot \
-  --env-file .env \
-  --restart unless-stopped \
-  telegram-llm-bot
-```
+See `SPECIFICATION.md` for detailed technical documentation.
 
-### Посмотреть логи
+## Monitoring
 
-```bash
-docker logs -f telegram-llm-bot
-```
-
-## 📊 База данных
-
-### Таблицы Supabase
-
-#### request_logs
-Хранит все запросы к боту:
-- ID, User ID, Username, First Name
-- Chat ID, Request Text, Response Text
-- Model Used, Response Length
-- Execution Time, Error Message
-- Created At (timestamp)
-
-#### daily_limits
-Отслеживает дневные лимиты:
-- User ID, Date
-- Pro Requests Count
-- Flash Requests Count
-- Updated At
-
-### Просмотр статистики
-
-Вы можете выполнять SQL запросы в Supabase Dashboard:
-
-```sql
--- Топ пользователей по количеству запросов
-SELECT 
-    username, 
-    first_name,
-    COUNT(*) as total_requests
-FROM request_logs
-GROUP BY username, first_name
-ORDER BY total_requests DESC
-LIMIT 10;
-
--- Статистика использования моделей
-SELECT 
-    model_used,
-    COUNT(*) as count,
-    AVG(execution_time_ms) as avg_time
-FROM request_logs
-GROUP BY model_used;
-```
-
-## ⚙️ Конфигурация
-
-### Переменные окружения
-
-| Переменная | Описание | Обязательная | По умолчанию |
-|-----------|----------|--------------|--------------|
-| `TELEGRAM_BOT_TOKEN` | Токен бота от BotFather | ✅ | - |
-| `TELEGRAM_BOT_USERNAME` | Username бота (без @) | ✅ | - |
-| `TELEGRAM_ALLOWED_CHAT_IDS` | ID разрешенных чатов (через запятую) | ✅ | - |
-| `GEMINI_API_KEY` | Google Gemini API ключ | ✅ | - |
-| `SUPABASE_URL` | URL проекта Supabase | ✅ | - |
-| `SUPABASE_KEY` | Supabase API ключ | ✅ | - |
-| `TIMEZONE` | Часовой пояс | ❌ | `Europe/Moscow` |
-| `LOG_LEVEL` | Уровень логирования | ❌ | `info` |
-| `ENVIRONMENT` | Окружение (dev/prod) | ❌ | `production` |
-| `PRO_DAILY_LIMIT` | Лимит Pro запросов/день | ❌ | `5` |
-| `FLASH_DAILY_LIMIT` | Лимит Flash запросов/день | ❌ | `25` |
-| `GEMINI_TIMEOUT` | Таймаут Gemini API (сек) | ❌ | `30` |
-| `SUPABASE_TIMEOUT` | Таймаут Supabase (сек) | ❌ | `10` |
-
-**Примечание**: Максимальная длина ответа зафиксирована на уровне 3500 символов (в промпте) для совместимости с лимитом Telegram в 4096 символов на сообщение.
-
-## 🔐 Безопасность
-
-- ✅ Все секреты в переменных окружения
-- ✅ Никакие credentials не логируются
-- ✅ Контейнер работает от non-root пользователя
-- ✅ Retry логика для внешних API
-- ✅ Graceful shutdown для корректной остановки
-
-## 🚨 Устранение неполадок
-
-### Бот не отвечает на упоминания
-
-1. Проверьте что бот добавлен в группу (или группы)
-2. Проверьте что `TELEGRAM_ALLOWED_CHAT_IDS` содержит правильные ID чатов
-3. Проверьте логи: `docker-compose logs -f`
-
-### Ошибка подключения к Supabase
-
-1. Проверьте `SUPABASE_URL` и `SUPABASE_KEY`
-2. Убедитесь что таблицы созданы (выполните schema.sql)
-3. Проверьте что в Supabase разрешен доступ по API ключу
-
-### Ошибка Gemini API
-
-1. Проверьте `GEMINI_API_KEY`
-2. Убедитесь что у вас есть квота API
-3. Проверьте название моделей в коде (могут измениться)
-
-### Лимиты не сбрасываются
-
-1. Проверьте `TIMEZONE` в конфигурации
-2. Убедитесь что в Docker контейнере установлена правильная TZ
-3. Проверьте логи работы rate limiter
-
-## 📈 Мониторинг
-
-### Логи
+### View Logs
 
 ```bash
 # Docker Compose
@@ -311,40 +324,67 @@ docker-compose logs -f
 
 # Docker
 docker logs -f telegram-llm-bot
-
-# Локально - выводятся в stdout
 ```
 
-### Метрики в Supabase
-
-Используйте view `daily_statistics` для агрегированной статистики:
+### Database Queries
 
 ```sql
-SELECT * FROM daily_statistics 
+-- Overall RAG statistics
+SELECT * FROM rag_statistics;
+
+-- Recent summaries
+SELECT * FROM daily_summaries 
 ORDER BY date DESC 
 LIMIT 7;
+
+-- Daily message statistics
+SELECT * FROM daily_message_stats 
+ORDER BY date DESC 
+LIMIT 7;
+
+-- Top users by requests
+SELECT username, COUNT(*) as total
+FROM request_logs
+GROUP BY username
+ORDER BY total DESC
+LIMIT 10;
 ```
 
-## 🤝 Поддержка
+## Troubleshooting
 
-При возникновении проблем:
-1. Проверьте логи бота
-2. Проверьте конфигурацию в .env
-3. Убедитесь что все внешние сервисы доступны
+### Bot doesn't respond
 
-## 📜 Лицензия
+- Verify bot is added to the group
+- Check `TELEGRAM_ALLOWED_CHAT_IDS` contains correct chat ID
+- Review logs: `docker-compose logs -f`
+
+### RAG not finding relevant messages
+
+- Run `/sync` to index messages
+- Lower `RAG_SIMILARITY_THRESHOLD` to 0.6-0.7
+- Check indexing: `SELECT * FROM rag_statistics;` in Supabase
+
+### Daily summary not posting
+
+- Verify `SUMMARY_ENABLED=true` in config
+- Check scheduler logs for errors
+- Ensure bot has permission to post in chat
+- Verify timezone setting matches expected schedule
+
+### Rate limit errors
+
+- Verify Gemini API quota in Google Cloud Console
+- Check Supabase connection and limits
+- Review error logs for specific issues
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
 
 MIT License
 
-## 🎯 TODO / Улучшения
-
-- [ ] Добавить веб-интерфейс для администрирования
-- [ ] Реализовать белый список пользователей
-- [ ] Добавить metrics endpoint (Prometheus)
-- [ ] Реализовать кеширование частых запросов
-- [ ] Добавить поддержку нескольких чатов
-- [ ] Реализовать систему подписок/платных тарифов
-
 ---
 
-**Примечание**: Этот бот разработан для использования в приватном групповом чате. Для публичного использования рекомендуется добавить дополнительные механизмы защиты и модерации.
+**Note**: This bot is designed for private group chats. For public use, implement additional security measures and content moderation.

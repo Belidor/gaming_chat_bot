@@ -42,6 +42,12 @@ func (b *Bot) handleMessage(ctx context.Context, message *tgbotapi.Message) {
 		return
 	}
 
+	// Save ALL messages from allowed chats to database for RAG and summaries
+	// This is critical for the RAG system and daily summaries to work
+	if message.Text != "" && message.From != nil {
+		b.saveChatMessage(ctx, message)
+	}
+
 	// Check if message contains bot mention
 	if b.isMentioned(message) {
 		b.handleMention(ctx, message)
@@ -64,6 +70,10 @@ func (b *Bot) handleCommand(ctx context.Context, message *tgbotapi.Message) {
 		b.handleStatsCommand(ctx, message)
 	case "start", "help":
 		b.handleHelpCommand(ctx, message)
+	case "summary":
+		b.handleSummaryCommand(ctx, message)
+	case "sync":
+		b.handleSyncCommand(ctx, message)
 	default:
 		b.sendMessage(message.Chat.ID, "❓ Неизвестная команда. Используйте /help для списка команд.")
 	}
@@ -117,18 +127,95 @@ func (b *Bot) handleHelpCommand(ctx context.Context, message *tgbotapi.Message) 
 			"Просто упомяните меня (@%s) и задайте вопрос!\n\n"+
 			"*Доступные команды:*\n"+
 			"/stats - Посмотреть свою статистику\n"+
+			"/summary - Сгенерировать саммари за вчерашний день\n"+
+			"/sync - Запустить синхронизацию RAG (индексация сообщений)\n"+
 			"/help - Показать это сообщение\n\n"+
 			"*Лимиты:*\n"+
 			"• Gemini Pro (думающая модель): %d запросов/день\n"+
 			"• Gemini Flash (быстрая модель): %d запросов/день\n\n"+
 			"Сначала используются запросы к Pro модели, затем к Flash.\n"+
-			"Лимиты сбрасываются в полночь по московскому времени.",
+			"Лимиты сбрасываются в полночь по московскому времени.\n\n"+
+			"*Автоматические задачи:*\n"+
+			"• 03:00 МСК - Синхронизация RAG (индексация embeddings)\n"+
+			"• 07:00 МСК - Ежедневное саммари",
 		b.config.TelegramUsername,
 		b.config.ProDailyLimit,
 		b.config.FlashDailyLimit,
 	)
 
 	b.sendMessage(message.Chat.ID, helpMsg)
+}
+
+// handleSummaryCommand handles /summary command - generates summary for yesterday
+func (b *Bot) handleSummaryCommand(ctx context.Context, message *tgbotapi.Message) {
+	chatID := message.Chat.ID
+
+	// Only allow in allowed chats
+	if !b.config.IsAllowedChat(chatID) {
+		b.sendMessage(chatID, "❌ Эта команда доступна только в разрешенных чатах.")
+		return
+	}
+
+	b.logger.Info().
+		Int64("chat_id", chatID).
+		Int64("user_id", message.From.ID).
+		Str("username", message.From.UserName).
+		Msg("Manual summary generation requested")
+
+	// Send "generating" message
+	b.sendMessage(chatID, "⏳ Генерирую саммари за вчерашний день...")
+
+	// Trigger summary generation callback if available
+	if b.summaryCallback != nil {
+		if err := b.summaryCallback(chatID); err != nil {
+			b.logger.Error().
+				Err(err).
+				Int64("chat_id", chatID).
+				Msg("Failed to generate manual summary")
+			b.sendMessage(chatID, "❌ Ошибка при генерации саммари. Попробуйте позже.")
+			return
+		}
+	} else {
+		b.sendMessage(chatID, "❌ Функция саммари не настроена.")
+	}
+}
+
+// handleSyncCommand handles /sync command - manual RAG synchronization
+func (b *Bot) handleSyncCommand(ctx context.Context, message *tgbotapi.Message) {
+	chatID := message.Chat.ID
+
+	// Only allow in allowed chats
+	if !b.config.IsAllowedChat(chatID) {
+		b.sendMessage(chatID, "❌ Эта команда доступна только в разрешенных чатах.")
+		return
+	}
+
+	b.logger.Info().
+		Int64("chat_id", chatID).
+		Int64("user_id", message.From.ID).
+		Str("username", message.From.UserName).
+		Msg("Manual RAG sync requested")
+
+	// Send "starting" message
+	b.sendMessage(chatID, "🔄 Запускаю синхронизацию RAG...\n\nЭто может занять несколько минут.")
+
+	// Trigger sync callback if available
+	if b.syncCallback != nil {
+		// Run in goroutine to not block
+		go func() {
+			if err := b.syncCallback(); err != nil {
+				b.logger.Error().
+					Err(err).
+					Int64("chat_id", chatID).
+					Msg("Failed to run manual sync")
+				b.sendMessage(chatID, "❌ Ошибка при синхронизации. Попробуйте позже.")
+			} else {
+				b.sendMessage(chatID, "✅ Синхронизация завершена успешно!")
+			}
+		}()
+	} else {
+		b.sendMessage(chatID, "❌ Функция синхронизации не настроена.")
+	}
 }
 
 // handleMention processes messages where bot is mentioned

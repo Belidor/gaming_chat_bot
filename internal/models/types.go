@@ -22,6 +22,20 @@ func (m ModelType) String() string {
 	return string(m)
 }
 
+// ChatMessage represents a message from the chat_messages table
+type ChatMessage struct {
+	ID          int64     `json:"id"`
+	MessageID   int64     `json:"message_id"`
+	UserID      int64     `json:"user_id"`
+	Username    string    `json:"username,omitempty"`
+	FirstName   string    `json:"first_name,omitempty"`
+	ChatID      int64     `json:"chat_id"`
+	MessageText string    `json:"message_text"`
+	Indexed     bool      `json:"indexed"`
+	CreatedAt   time.Time `json:"created_at"`
+	IndexedAt   time.Time `json:"indexed_at,omitempty"`
+}
+
 // RequestLog represents a log entry for a user request
 type RequestLog struct {
 	ID              int64     `json:"id"`

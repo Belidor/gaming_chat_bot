@@ -11,9 +11,12 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/telegram-llm-bot/internal/bot"
 	"github.com/telegram-llm-bot/internal/config"
+	"github.com/telegram-llm-bot/internal/embeddings"
 	"github.com/telegram-llm-bot/internal/llm"
 	"github.com/telegram-llm-bot/internal/ratelimit"
+	"github.com/telegram-llm-bot/internal/scheduler"
 	"github.com/telegram-llm-bot/internal/storage"
+	"github.com/telegram-llm-bot/internal/summary"
 )
 
 func main() {
@@ -88,6 +91,64 @@ func main() {
 		Interface("allowed_chat_ids", cfg.AllowedChatIDs).
 		Msg("Bot initialized successfully")
 
+	// Initialize summary generator
+	logger.Info().Msg("Initializing summary generator...")
+	summaryGenerator := summary.NewGenerator(cfg.GeminiAPIKey, cfg, logger)
+	defer func() {
+		if err := summaryGenerator.Close(); err != nil {
+			logger.Error().Err(err).Msg("Failed to close summary generator")
+		}
+	}()
+
+	// Initialize embeddings client for RAG
+	logger.Info().Msg("Initializing embeddings client...")
+	embeddingsClient := embeddings.NewClient(
+		cfg.GeminiAPIKey,
+		"text-embedding-004",
+		100, // batch size
+		30*time.Second,
+		logger,
+	)
+	defer func() {
+		if err := embeddingsClient.Close(); err != nil {
+			logger.Error().Err(err).Msg("Failed to close embeddings client")
+		}
+	}()
+
+	// Initialize sync job for RAG
+	logger.Info().Msg("Initializing sync job...")
+	syncJob := scheduler.NewSyncJob(
+		storageClient,
+		embeddingsClient,
+		100,  // batch size
+		1000, // max messages per run
+		logger,
+	)
+
+	// Initialize scheduler for daily summaries and RAG sync
+	logger.Info().Msg("Initializing scheduler...")
+	summaryScheduler, err := scheduler.NewScheduler(
+		storageClient,
+		summaryGenerator,
+		cfg,
+		telegramBot.SendDailySummary,
+		syncJob,
+		logger,
+	)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to create scheduler")
+	}
+
+	// Set up callback for manual summary generation via /summary command
+	telegramBot.SetSummaryCallback(func(chatID int64) error {
+		return summaryScheduler.GenerateSummaryForYesterday(ctx, chatID)
+	})
+
+	// Set up callback for manual RAG sync via /sync command
+	telegramBot.SetSyncCallback(func() error {
+		return syncJob.Run(context.Background())
+	})
+
 	// Setup signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
@@ -100,14 +161,24 @@ func main() {
 		}
 	}()
 
-	logger.Info().Msg("Bot is running. Press Ctrl+C to stop.")
+	// Start scheduler in a goroutine
+	schedulerErrChan := make(chan error, 1)
+	go func() {
+		if err := summaryScheduler.Start(ctx); err != nil && err != context.Canceled {
+			schedulerErrChan <- err
+		}
+	}()
 
-	// Wait for termination signal or bot error
+	logger.Info().Msg("Bot and scheduler are running. Press Ctrl+C to stop.")
+
+	// Wait for termination signal or errors
 	select {
 	case sig := <-sigChan:
 		logger.Info().Str("signal", sig.String()).Msg("Received termination signal")
 	case err := <-botErrChan:
 		logger.Error().Err(err).Msg("Bot stopped with error")
+	case err := <-schedulerErrChan:
+		logger.Error().Err(err).Msg("Scheduler stopped with error")
 	}
 
 	// Graceful shutdown

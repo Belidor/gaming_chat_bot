@@ -44,7 +44,16 @@ temp/
 
 # Build artifacts
 telegram-llm-bot
+gaming_chat_bot
+bot
 cmd/bot/bot
+
+# Scripts
+rebuild.sh
+*.sh
 
 # Docker volumes
 .docker/
+
+# Data files
+data/
