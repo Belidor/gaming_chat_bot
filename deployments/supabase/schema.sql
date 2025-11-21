@@ -32,8 +32,9 @@ CREATE TABLE IF NOT EXISTS daily_limits (
     date DATE NOT NULL,                         -- Date in Moscow timezone (Europe/Moscow)
     pro_requests_count INTEGER DEFAULT 0,       -- Number of Pro model requests used
     flash_requests_count INTEGER DEFAULT 0,     -- Number of Flash model requests used
+    image_generations_used INTEGER DEFAULT 0,   -- Number of image generations used
     updated_at TIMESTAMPTZ DEFAULT NOW(),       -- Last update timestamp
-    
+
     CONSTRAINT unique_user_date UNIQUE(user_id, date)
 );
 
@@ -124,17 +125,20 @@ $$ LANGUAGE plpgsql;
 
 -- Optional: Create a view for daily statistics
 CREATE OR REPLACE VIEW daily_statistics AS
-SELECT 
-    DATE(created_at AT TIME ZONE 'Europe/Moscow') as date,
-    COUNT(DISTINCT user_id) as unique_users,
-    COUNT(*) as total_requests,
-    SUM(CASE WHEN model_used LIKE '%pro%' THEN 1 ELSE 0 END) as pro_requests,
-    SUM(CASE WHEN model_used LIKE '%flash%' THEN 1 ELSE 0 END) as flash_requests,
-    AVG(execution_time_ms) as avg_execution_time_ms,
-    AVG(response_length) as avg_response_length
-FROM request_logs
-GROUP BY DATE(created_at AT TIME ZONE 'Europe/Moscow')
-ORDER BY date DESC;
+SELECT
+    dl.date,
+    COUNT(DISTINCT dl.user_id) as unique_users,
+    COALESCE(SUM(dl.pro_requests_count), 0) as pro_requests,
+    COALESCE(SUM(dl.flash_requests_count), 0) as flash_requests,
+    COALESCE(SUM(dl.image_generations_used), 0) as image_generations_count,
+    COALESCE((
+        SELECT COUNT(*)
+        FROM request_logs rl
+        WHERE DATE(rl.created_at AT TIME ZONE 'Europe/Moscow') = dl.date
+    ), 0) as total_requests
+FROM daily_limits dl
+GROUP BY dl.date
+ORDER BY dl.date DESC;
 
 COMMENT ON VIEW daily_statistics IS 'Daily aggregated statistics for bot usage';
 
@@ -404,3 +408,71 @@ COMMENT ON COLUMN daily_summaries.date IS 'Date for summary in Moscow timezone (
 COMMENT ON COLUMN daily_summaries.summary_text IS 'Generated summary with topics list';
 COMMENT ON COLUMN daily_summaries.most_active_user_id IS 'User who sent most messages that day';
 COMMENT ON COLUMN daily_summaries.message_count IS 'Total number of messages analyzed';
+
+-- =============================================================================
+-- IMAGE GENERATION FUNCTIONS
+-- =============================================================================
+
+-- Function: Get user image generation count for today
+CREATE OR REPLACE FUNCTION get_user_image_generations(
+    p_user_id BIGINT,
+    p_date DATE
+)
+RETURNS TABLE(image_generations_used INTEGER) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT COALESCE(dl.image_generations_used, 0) as image_generations_used
+    FROM daily_limits dl
+    WHERE dl.user_id = p_user_id AND dl.date = p_date;
+
+    -- If no record found, return zero
+    IF NOT FOUND THEN
+        RETURN QUERY SELECT 0;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION get_user_image_generations IS 'Returns image generation count for a user on a specific date';
+
+-- Function: Get chat image generation count for today (sum of all users in chat)
+CREATE OR REPLACE FUNCTION get_chat_image_generations(
+    p_chat_id BIGINT,
+    p_date DATE
+)
+RETURNS TABLE(image_generations_count INTEGER) AS $$
+BEGIN
+    -- For now, we track per-user limits. For chat limits, we'll sum across all users
+    -- This is a simplified implementation. In production, you might want a separate table.
+    RETURN QUERY
+    SELECT COALESCE(SUM(image_generations_used), 0)::INTEGER as image_generations_count
+    FROM daily_limits
+    WHERE date = p_date;
+
+    -- Note: This sums ALL users across ALL chats for the date.
+    -- If you need per-chat tracking, add a chat_id column to daily_limits table.
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION get_chat_image_generations IS 'Returns total image generation count for a chat on a specific date';
+
+-- Function: Record image generation (increment counters atomically)
+CREATE OR REPLACE FUNCTION record_image_generation(
+    p_user_id BIGINT,
+    p_chat_id BIGINT,
+    p_date DATE
+)
+RETURNS BOOLEAN AS $$
+BEGIN
+    -- Insert or update user's daily limit
+    INSERT INTO daily_limits (user_id, date, image_generations_used)
+    VALUES (p_user_id, p_date, 1)
+    ON CONFLICT (user_id, date)
+    DO UPDATE SET
+        image_generations_used = daily_limits.image_generations_used + 1,
+        updated_at = NOW();
+
+    RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION record_image_generation IS 'Records an image generation for a user, incrementing their daily counter';

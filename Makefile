@@ -35,10 +35,11 @@ help:
 	@echo "  make docker-shell    - Open shell in container"
 	@echo ""
 	@echo "Docker Compose commands:"
-	@echo "  make compose-up      - Start services with docker-compose"
-	@echo "  make compose-down    - Stop services with docker-compose"
-	@echo "  make compose-logs    - View logs from docker-compose"
+	@echo "  make compose-up      - Start services with docker compose"
+	@echo "  make compose-down    - Stop services with docker compose"
+	@echo "  make compose-logs    - View logs from docker compose"
 	@echo "  make compose-restart - Restart services"
+	@echo "  make compose-rebuild - Rebuild and restart services (no cache)"
 
 # Build the binary
 build:
@@ -121,35 +122,35 @@ docker-shell:
 
 # Docker Compose up
 compose-up:
-	@echo "Starting services with docker-compose..."
-	docker-compose up -d
+	@echo "Starting services with docker compose..."
+	docker compose up -d
 	@echo "Services started"
 
 # Docker Compose down
 compose-down:
-	@echo "Stopping services with docker-compose..."
-	docker-compose down
+	@echo "Stopping services with docker compose..."
+	docker compose down
 	@echo "Services stopped"
 
 # Docker Compose logs
 compose-logs:
-	@echo "Viewing docker-compose logs..."
-	docker-compose logs -f
+	@echo "Viewing docker compose logs..."
+	docker compose logs -f
 
 # Docker Compose restart
 compose-restart:
 	@echo "Restarting services..."
-	docker-compose restart
+	docker compose restart
 	@echo "Services restarted"
 
 # Docker Compose rebuild and restart
 compose-rebuild:
 	@echo "🛑 Stopping containers..."
-	docker-compose down
+	docker compose down
 	@echo "🔨 Building containers (no cache)..."
-	docker-compose build --no-cache
+	docker compose build --no-cache
 	@echo "🚀 Starting containers..."
-	docker-compose up -d
+	docker compose up -d
 	@echo "✅ Services rebuilt and restarted"
 	@echo "📋 To view logs: make compose-logs"
 

@@ -57,3 +57,13 @@ rebuild.sh
  
 # Data files
 data/
+
+# Supabase ad-hoc SQL scripts
+deployments/supabase/fix_chat_id.sql
+deployments/supabase/fix_user_id.sql
+deployments/supabase/fix_user_mapping.sql
+deployments/supabase/rag_migration.sql
+
+# Supabase migrations (except .gitkeep)
+supabase/*.sql
+!supabase/.gitkeep

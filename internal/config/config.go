@@ -26,6 +26,9 @@ func Load() (*models.BotConfig, error) {
 		GeminiAPIKey:  getEnv("GEMINI_API_KEY", ""),
 		GeminiTimeout: getEnvInt("GEMINI_TIMEOUT", 30),
 
+		// Hugging Face API settings
+		HuggingFaceToken: getEnv("HUGGINGFACE_TOKEN", ""),
+
 		// Supabase settings
 		SupabaseURL:     getEnv("SUPABASE_URL", ""),
 		SupabaseKey:     getEnv("SUPABASE_KEY", ""),
@@ -39,6 +42,10 @@ func Load() (*models.BotConfig, error) {
 		// Rate limits
 		ProDailyLimit:   getEnvInt("PRO_DAILY_LIMIT", 5),
 		FlashDailyLimit: getEnvInt("FLASH_DAILY_LIMIT", 25),
+
+		// Image Generation Limits
+		ImageGenerationDailyLimitPerUser: getEnvInt("IMAGE_GENERATION_DAILY_LIMIT_PER_USER", 15),
+		ImageGenerationDailyLimitPerChat: getEnvInt("IMAGE_GENERATION_DAILY_LIMIT_PER_CHAT", 100),
 
 		// LLM parameters
 		LLMTemperature: getEnvFloat32("LLM_TEMPERATURE", 0.7),

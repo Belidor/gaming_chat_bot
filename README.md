@@ -5,10 +5,11 @@ A production-ready Telegram bot powered by Google Gemini AI with RAG (Retrieval-
 ## Features
 
 - **Google Gemini Integration**: Dual-model support (Gemini 2.0 Flash Thinking and Gemini 2.0 Flash)
+- **AI Image Generation**: Create images from text using FLUX.1-schnell via Hugging Face (free)
 - **RAG System**: Vector search over entire chat history using pgvector and embeddings
 - **Context-Aware Responses**: Bot uses past discussions for more relevant answers
 - **Daily Summaries**: Automated chat summaries posted every morning at 7 AM MSK
-- **Smart Rate Limiting**: 5 Pro requests/day, 25 Flash requests/day per user
+- **Smart Rate Limiting**: 5 Pro requests/day, 25 Flash requests/day per user, 15 image generations/day
 - **Automatic Indexing**: Nightly synchronization of new messages (03:00 MSK)
 - **Supabase Integration**: PostgreSQL database with vector search capabilities
 - **Docker Support**: Full containerization for easy deployment
@@ -22,6 +23,7 @@ A production-ready Telegram bot powered by Google Gemini AI with RAG (Retrieval-
 - Docker and Docker Compose (recommended) or Go 1.21+
 - Telegram Bot Token (from [@BotFather](https://t.me/BotFather))
 - Google Gemini API Key (from [Google AI Studio](https://makersuite.google.com/app/apikey))
+- Hugging Face Token (from [Hugging Face](https://huggingface.co/settings/tokens)) - for image generation
 - Supabase account (from [Supabase](https://supabase.com))
 
 ### Installation
@@ -67,6 +69,9 @@ TELEGRAM_ALLOWED_CHAT_IDS=-1001234567890  # Comma-separated chat IDs
 # Google Gemini API
 GEMINI_API_KEY=your_gemini_api_key
 
+# Hugging Face API (for image generation)
+HUGGINGFACE_TOKEN=your_huggingface_token
+
 # Supabase Configuration
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your_supabase_anon_or_service_key
@@ -110,8 +115,10 @@ After the bot starts, in your Telegram chat:
 
 ### Bot Commands
 
-- `/start` or `/help` - Show help message
+- `/start` or `/help` - Show help message and all available commands
 - `/stats` - Display your usage statistics
+- `/draw <prompt>` - Generate an image from text description
+- `/summary` - Generate summary for yesterday's chat
 - `/sync` - Manually trigger message indexing for RAG
 
 ### Asking Questions
@@ -123,6 +130,21 @@ Mention the bot in your group chat:
 ```
 
 The bot responds using available AI models and incorporates relevant chat history via RAG.
+
+### Generating Images
+
+Use the `/draw` command with a description:
+
+```
+/draw beautiful sunset over the ocean
+/draw cat in space wearing a spacesuit, cyberpunk style
+/draw futuristic city at night
+```
+
+- **Model**: FLUX.1-schnell (fast, high-quality)
+- **Limit**: 15 images per day per user
+- **Speed**: 3-5 seconds per image
+- **Free**: Uses Hugging Face Inference API
 
 ### Daily Summaries
 
@@ -183,6 +205,9 @@ Bot: 📊 Statistics for John
 | `ENVIRONMENT` | No | `production` | Environment name |
 | `PRO_DAILY_LIMIT` | No | `5` | Daily Pro model requests |
 | `FLASH_DAILY_LIMIT` | No | `25` | Daily Flash model requests |
+| `HUGGINGFACE_TOKEN` | Yes* | - | Hugging Face API token (* only for image generation) |
+| `IMAGE_GENERATION_DAILY_LIMIT_PER_USER` | No | `15` | Daily image generations per user |
+| `IMAGE_GENERATION_DAILY_LIMIT_PER_CHAT` | No | `100` | Daily image generations per chat |
 | `RAG_ENABLED` | No | `true` | Enable RAG system |
 | `RAG_TOP_K` | No | `5` | Number of relevant messages |
 | `RAG_SIMILARITY_THRESHOLD` | No | `0.8` | Similarity score (0.0-1.0) |
@@ -296,7 +321,7 @@ go fmt ./...
 
 **Tables:**
 - `request_logs`: All user requests and responses
-- `daily_limits`: Per-user daily rate limits
+- `daily_limits`: Per-user daily rate limits (including image generation usage)
 - `chat_messages`: All messages with vector embeddings
 - `daily_summaries`: Generated daily chat summaries
 
@@ -376,6 +401,13 @@ LIMIT 10;
 - Verify Gemini API quota in Google Cloud Console
 - Check Supabase connection and limits
 - Review error logs for specific issues
+
+### Image generation not working
+
+- Verify `HUGGINGFACE_TOKEN` is set in `.env`
+- Get token from https://huggingface.co/settings/tokens (Read access is sufficient)
+- Check logs for API errors
+- See `IMAGE_GENERATION_SETUP.md` for detailed setup guide
 
 ## Contributing
 

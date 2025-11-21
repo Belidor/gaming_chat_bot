@@ -74,6 +74,8 @@ func (b *Bot) handleCommand(ctx context.Context, message *tgbotapi.Message) {
 		b.handleSummaryCommand(ctx, message)
 	case "sync":
 		b.handleSyncCommand(ctx, message)
+	case "draw":
+		b.handleDrawCommand(ctx, message)
 	default:
 		b.sendMessage(message.Chat.ID, "❓ Неизвестная команда. Используйте /help для списка команд.")
 	}
@@ -127,20 +129,26 @@ func (b *Bot) handleHelpCommand(ctx context.Context, message *tgbotapi.Message) 
 			"Просто упомяните меня (@%s) и задайте вопрос!\n\n"+
 			"*Доступные команды:*\n"+
 			"/stats - Посмотреть свою статистику\n"+
+			"/draw <запрос> - Сгенерировать изображение по описанию\n"+
 			"/summary - Сгенерировать саммари за вчерашний день\n"+
 			"/sync - Запустить синхронизацию RAG (индексация сообщений)\n"+
 			"/help - Показать это сообщение\n\n"+
 			"*Лимиты:*\n"+
 			"• Gemini Pro (думающая модель): %d запросов/день\n"+
-			"• Gemini Flash (быстрая модель): %d запросов/день\n\n"+
+			"• Gemini Flash (быстрая модель): %d запросов/день\n"+
+			"• Генерация изображений: %d генераций/день\n\n"+
 			"Сначала используются запросы к Pro модели, затем к Flash.\n"+
 			"Лимиты сбрасываются в полночь по московскому времени.\n\n"+
+			"*Примеры:*\n"+
+			"• /draw красивый закат над океаном\n"+
+			"• /draw кот в космосе в стиле киберпанк\n\n"+
 			"*Автоматические задачи:*\n"+
 			"• 03:00 МСК - Синхронизация RAG (индексация embeddings)\n"+
 			"• 07:00 МСК - Ежедневное саммари",
 		b.config.TelegramUsername,
 		b.config.ProDailyLimit,
 		b.config.FlashDailyLimit,
+		b.config.ImageGenerationDailyLimitPerUser,
 	)
 
 	b.sendMessage(message.Chat.ID, helpMsg)
@@ -389,6 +397,115 @@ func (b *Bot) isMentioned(message *tgbotapi.Message) bool {
 
 	// Also check if message text contains bot username
 	return strings.Contains(strings.ToLower(message.Text), strings.ToLower("@"+b.config.TelegramUsername))
+}
+
+// handleDrawCommand handles /draw command - generates an image from text prompt
+func (b *Bot) handleDrawCommand(ctx context.Context, message *tgbotapi.Message) {
+	chatID := message.Chat.ID
+	userID := message.From.ID
+	username := message.From.UserName
+	firstName := message.From.FirstName
+
+	// Extract prompt text after /draw command
+	prompt := strings.TrimSpace(message.CommandArguments())
+
+	// Validate prompt is not empty
+	if prompt == "" {
+		b.sendMessage(chatID, "Укажите описание изображения. Пример: /draw красивый закат над океаном")
+		return
+	}
+
+	// Validate prompt length (max 500 characters as per spec)
+	if len([]rune(prompt)) > 500 {
+		b.sendMessage(chatID, "⚠️ Описание слишком длинное. Максимум 500 символов.")
+		return
+	}
+
+	b.logger.Info().
+		Int64("user_id", userID).
+		Str("username", username).
+		Int("prompt_length", len([]rune(prompt))).
+		Msg("Processing /draw command")
+
+	// Get current date in configured timezone for limit checking
+	loc, err := time.LoadLocation(b.config.Timezone)
+	if err != nil {
+		b.logger.Error().Err(err).Msg("Failed to load timezone, using UTC")
+		loc = time.UTC
+	}
+	currentDate := time.Now().In(loc).Format("2006-01-02")
+
+	// Check image generation limits
+	allowed, remaining, err := b.storage.CheckImageGenerationLimit(ctx, userID, chatID, currentDate, b.config)
+	if err != nil {
+		b.logger.Error().
+			Err(err).
+			Int64("user_id", userID).
+			Msg("Failed to check image generation limit")
+		b.sendErrorMessage(chatID, "❌ Ошибка при проверке лимитов")
+		return
+	}
+
+	if !allowed {
+		b.sendMessage(chatID, fmt.Sprintf(
+			"❌ Вы исчерпали дневной лимит генераций (%d/день). Попробуйте завтра.",
+			b.config.ImageGenerationDailyLimitPerUser,
+		))
+		return
+	}
+
+	// Send "generating" message
+	b.sendMessage(chatID, "🎨 Генерирую изображение...")
+	b.sendTypingAction(chatID)
+
+	// Generate image
+	imageData, err := b.llmClient.GenerateImage(ctx, prompt)
+	if err != nil {
+		b.logger.Error().
+			Err(err).
+			Int64("user_id", userID).
+			Str("prompt", prompt).
+			Msg("Failed to generate image")
+
+		b.sendErrorMessage(chatID, "⚠️ Сервис генерации временно недоступен. Попробуйте позже.")
+		return
+	}
+
+	// Record usage
+	if err := b.storage.RecordImageGeneration(ctx, userID, chatID, currentDate); err != nil {
+		b.logger.Error().
+			Err(err).
+			Int64("user_id", userID).
+			Msg("Failed to record image generation")
+		// Continue anyway, we already generated the image
+	}
+
+	// Send image to user
+	photoConfig := tgbotapi.NewPhoto(chatID, tgbotapi.FileBytes{
+		Name:  "generated_image.jpg",
+		Bytes: imageData,
+	})
+
+	// Add caption with remaining count
+	remaining-- // Decrement since we just used one
+	photoConfig.Caption = fmt.Sprintf("✨ Осталось генераций сегодня: %d", remaining)
+
+	_, err = b.api.Send(photoConfig)
+	if err != nil {
+		b.logger.Error().
+			Err(err).
+			Int64("user_id", userID).
+			Msg("Failed to send generated image")
+		b.sendErrorMessage(chatID, "❌ Не удалось отправить изображение")
+		return
+	}
+
+	b.logger.Info().
+		Int64("user_id", userID).
+		Str("username", username).
+		Str("first_name", firstName).
+		Int("remaining", remaining).
+		Msg("Image generated and sent successfully")
 }
 
 // extractQuestion extracts the question text from message, removing bot mention

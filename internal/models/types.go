@@ -15,6 +15,13 @@ const (
 	// Used for fast responses with good quality
 	// See current rate limits: https://ai.google.dev/pricing
 	ModelFlash ModelType = "gemini-2.0-flash"
+
+	// ModelImageGeneration represents FLUX.1-schnell for image generation via Hugging Face
+	// Used for generating images from text prompts
+	// Free access through Hugging Face Inference API
+	// See: https://huggingface.co/black-forest-labs/FLUX.1-schnell
+	// Note: This constant is not used directly, see internal/llm/image_generation.go
+	ModelImageGeneration ModelType = "flux-schnell"
 )
 
 // String returns string representation of ModelType
@@ -84,6 +91,7 @@ type LLMRequest struct {
 	Text        string
 	ModelType   ModelType
 	TimeoutSecs int
+	RAGContext  string // Optional RAG context to include in prompt
 }
 
 // LLMResponse represents a response from LLM
@@ -115,6 +123,9 @@ type BotConfig struct {
 	GeminiAPIKey  string
 	GeminiTimeout int
 
+	// Hugging Face API settings
+	HuggingFaceToken string
+
 	// Supabase settings
 	SupabaseURL     string
 	SupabaseKey     string
@@ -129,11 +140,28 @@ type BotConfig struct {
 	ProDailyLimit   int
 	FlashDailyLimit int
 
+	// Image Generation Limits
+	ImageGenerationDailyLimitPerUser int
+	ImageGenerationDailyLimitPerChat int
+
 	// LLM Generation Parameters
 	LLMTemperature float32
 	LLMTopP        float32
 	LLMTopK        int32
 	LLMMaxTokens   int32
+
+	// RAG Configuration
+	RAG RAGConfig
+}
+
+// RAGConfig represents RAG (Retrieval Augmented Generation) configuration
+type RAGConfig struct {
+	Enabled             bool
+	TopK                int
+	SimilarityThreshold float64
+	MaxContextLength    int
+	EmbeddingsModel     string
+	EmbeddingsBatchSize int
 }
 
 // IsAllowedChat checks if the given chat ID is in the allowed list
