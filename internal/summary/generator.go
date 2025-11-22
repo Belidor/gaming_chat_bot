@@ -177,17 +177,22 @@ func (g *Generator) buildSummaryPrompt(messages []models.ChatMessage, date strin
 
 	sb.WriteString("Сообщения:\n\n")
 
-	// Limit total prompt size to avoid token limits
 	const maxMessagesInPrompt = 500
 	messagesToUse := messages
+	selectionStrategy := "all"
+
 	if len(messages) > maxMessagesInPrompt {
-		// Take first 250 and last 250 messages to get context from beginning and end of day
-		messagesToUse = append(messages[:250], messages[len(messages)-250:]...)
+		firstBatch := messages[:250]
+		lastBatch := messages[len(messages)-250:]
+		messagesToUse = append(firstBatch, lastBatch...)
+		selectionStrategy = "first_250_and_last_250"
+
 		sb.WriteString(fmt.Sprintf("[Показаны первые 250 и последние 250 сообщений из %d]\n\n", len(messages)))
 	}
 
+	g.logMessageSelection(date, len(messages), selectionStrategy, messagesToUse)
+
 	for _, msg := range messagesToUse {
-		// Format: [HH:MM] Username: Message text
 		timestamp := msg.CreatedAt.Format("15:04")
 		username := msg.Username
 		if username == "" {
@@ -207,6 +212,54 @@ func (g *Generator) buildSummaryPrompt(messages []models.ChatMessage, date strin
 	sb.WriteString("Темы:")
 
 	return sb.String()
+}
+
+func (g *Generator) logMessageSelection(date string, totalMessages int, strategy string, selected []models.ChatMessage) {
+	if totalMessages == 0 {
+		g.logger.Info().
+			Str("date", date).
+			Int("total_messages", 0).
+			Int("selected_messages", 0).
+			Str("selection_strategy", strategy).
+			Msg("No messages available for summary prompt")
+		return
+	}
+
+	if len(selected) == 0 {
+		g.logger.Info().
+			Str("date", date).
+			Int("total_messages", totalMessages).
+			Int("selected_messages", 0).
+			Str("selection_strategy", strategy).
+			Msg("No messages selected for summary prompt")
+		return
+	}
+
+	moscowLoc, err := time.LoadLocation("Europe/Moscow")
+	if err != nil {
+		moscowLoc = time.UTC
+	}
+
+	firstMsgMoscow := selected[0].CreatedAt.In(moscowLoc)
+	lastMsgMoscow := selected[len(selected)-1].CreatedAt.In(moscowLoc)
+
+	allMatch := true
+	for _, msg := range selected {
+		if msg.CreatedAt.In(moscowLoc).Format("2006-01-02") != date {
+			allMatch = false
+			break
+		}
+	}
+
+	g.logger.Info().
+		Str("date", date).
+		Int("total_messages", totalMessages).
+		Int("selected_messages", len(selected)).
+		Str("selection_strategy", strategy).
+		Str("first_message_moscow", firstMsgMoscow.Format(time.RFC3339)).
+		Str("last_message_moscow", lastMsgMoscow.Format(time.RFC3339)).
+		Bool("all_messages_match_date", allMatch).
+		Msg("Message selection for summary prompt")
 }
 
 // parseTopics extracts topic lines from LLM response

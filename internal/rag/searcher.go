@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rs/zerolog"
 	"github.com/telegram-llm-bot/internal/embeddings"
@@ -117,14 +118,14 @@ func (s *Searcher) FormatContext(messages []*models.ChatMessage) string {
 		entry := fmt.Sprintf("%d. %s (%s, релевантность: %s): \"%s\"\n",
 			i+1, author, timeAgo, similarity, msg.MessageText)
 
-		// Check if adding this entry would exceed max length
-		if totalLength+len(entry) > maxLength {
+		entryRunes := utf8.RuneCountInString(entry)
+		if totalLength+entryRunes > maxLength {
 			builder.WriteString(fmt.Sprintf("\n[... еще %d релевантных сообщений не показаны из-за ограничения длины]\n", len(messages)-i))
 			break
 		}
 
 		builder.WriteString(entry)
-		totalLength += len(entry)
+		totalLength += entryRunes
 	}
 
 	builder.WriteString("\n")
@@ -197,8 +198,15 @@ func abs(n int) int {
 
 // truncate truncates string to maxLen characters
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	if maxLen <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	runes := []rune(s)
+	if maxLen > len(runes) {
+		maxLen = len(runes)
+	}
+	return string(runes[:maxLen]) + "..."
 }

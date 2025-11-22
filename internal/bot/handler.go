@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/telegram-llm-bot/internal/models"
@@ -283,6 +284,26 @@ func (b *Bot) handleMention(ctx context.Context, message *tgbotapi.Message) {
 		return
 	}
 
+	// Perform RAG search for relevant context
+	var ragContext string
+	ragResult, err := b.ragSearcher.Search(ctx, questionText, chatID)
+	if err != nil {
+		b.logger.Warn().
+			Err(err).
+			Int64("user_id", userID).
+			Int64("chat_id", chatID).
+			Msg("RAG search failed, continuing without context")
+		// Continue without RAG context - don't fail the request
+		ragContext = ""
+	} else {
+		ragContext = ragResult.Context
+		b.logger.Info().
+			Int64("user_id", userID).
+			Int64("chat_id", chatID).
+			Int("rag_results_count", ragResult.Count).
+			Msg("RAG search completed successfully")
+	}
+
 	// Create LLM request
 	llmReq := &models.LLMRequest{
 		UserID:      userID,
@@ -290,6 +311,7 @@ func (b *Bot) handleMention(ctx context.Context, message *tgbotapi.Message) {
 		FirstName:   firstName,
 		ChatID:      chatID,
 		Text:        questionText,
+		RAGContext:  ragContext,
 		ModelType:   limitResult.ModelToUse,
 		TimeoutSecs: b.config.GeminiTimeout,
 	}
@@ -385,18 +407,28 @@ func (b *Bot) handleMention(ctx context.Context, message *tgbotapi.Message) {
 
 // isMentioned checks if bot is mentioned in the message
 func (b *Bot) isMentioned(message *tgbotapi.Message) bool {
-	// Check entities for mentions
+	username := strings.ToLower("@" + b.config.TelegramUsername)
 	for _, entity := range message.Entities {
-		if entity.Type == "mention" {
-			mention := message.Text[entity.Offset : entity.Offset+entity.Length]
-			if strings.EqualFold(mention, "@"+b.config.TelegramUsername) {
+		switch entity.Type {
+		case "mention":
+			mention := extractEntityText(message.Text, entity.Offset, entity.Length)
+			if strings.EqualFold(mention, username) {
 				return true
+			}
+		case "text_mention":
+			if entity.User != nil {
+				if entity.User.UserName != "" && strings.EqualFold("@"+entity.User.UserName, username) {
+					return true
+				}
+				if entity.User.ID == b.api.Self.ID {
+					return true
+				}
 			}
 		}
 	}
 
-	// Also check if message text contains bot username
-	return strings.Contains(strings.ToLower(message.Text), strings.ToLower("@"+b.config.TelegramUsername))
+	// Fallback check to handle cases where Telegram didn't tag entities
+	return strings.Contains(strings.ToLower(message.Text), username)
 }
 
 // handleDrawCommand handles /draw command - generates an image from text prompt
@@ -521,4 +553,67 @@ func (b *Bot) extractQuestion(message *tgbotapi.Message) string {
 	text = strings.TrimSpace(text)
 
 	return text
+}
+
+func extractEntityText(text string, offset, length int) string {
+	startByte, endByte := utf16RangeToByteRange(text, offset, length)
+	if startByte == -1 || endByte == -1 || startByte >= endByte || startByte >= len(text) {
+		return ""
+	}
+	if endByte > len(text) {
+		endByte = len(text)
+	}
+	return text[startByte:endByte]
+}
+
+func utf16RangeToByteRange(s string, offset, length int) (int, int) {
+	if offset < 0 || length < 0 {
+		return -1, -1
+	}
+	targetStart := offset
+	targetEnd := offset + length
+
+	var (
+		currentUTF16 int
+		byteIndex    int
+		startByte    = -1
+		endByte      = -1
+	)
+
+	for _, r := range s {
+		runeLen := utf8.RuneLen(r)
+		units := 1
+		if r >= 0x10000 {
+			units = 2
+		}
+
+		if startByte == -1 && currentUTF16 >= targetStart {
+			startByte = byteIndex
+		}
+		if startByte != -1 && endByte == -1 && currentUTF16 >= targetEnd {
+			endByte = byteIndex
+			break
+		}
+
+		currentUTF16 += units
+		byteIndex += runeLen
+	}
+
+	if startByte == -1 {
+		if targetStart == currentUTF16 {
+			startByte = byteIndex
+		} else {
+			return -1, -1
+		}
+	}
+
+	if endByte == -1 {
+		if targetEnd <= currentUTF16 {
+			endByte = byteIndex
+		} else {
+			endByte = len(s)
+		}
+	}
+
+	return startByte, endByte
 }

@@ -41,6 +41,7 @@ type ChatMessage struct {
 	Indexed     bool      `json:"indexed"`
 	CreatedAt   time.Time `json:"created_at"`
 	IndexedAt   time.Time `json:"indexed_at,omitempty"`
+	Similarity  float64   `json:"similarity,omitempty"` // Similarity score from RAG search
 }
 
 // RequestLog represents a log entry for a user request
@@ -162,6 +163,14 @@ type RAGConfig struct {
 	MaxContextLength    int
 	EmbeddingsModel     string
 	EmbeddingsBatchSize int
+}
+
+// RAGResult represents the result of a RAG search
+type RAGResult struct {
+	Context   string         // Formatted context string for LLM
+	Messages  []*ChatMessage // Retrieved messages
+	QueryUsed string         // The query used for search
+	Count     int            // Number of results found
 }
 
 // IsAllowedChat checks if the given chat ID is in the allowed list

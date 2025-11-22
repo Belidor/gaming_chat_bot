@@ -232,7 +232,23 @@ func (s *Scheduler) processChatSummaryWithForce(ctx context.Context, chatID int6
 		return nil
 	}
 
-	logger.Info().Int("message_count", len(messages)).Msg("Retrieved messages for summary")
+	loc := s.timezone
+	firstMsgMoscow := messages[0].CreatedAt.In(loc)
+	lastMsgMoscow := messages[len(messages)-1].CreatedAt.In(loc)
+	allMatch := true
+	for _, msg := range messages {
+		if msg.CreatedAt.In(loc).Format("2006-01-02") != date {
+			allMatch = false
+			break
+		}
+	}
+
+	logger.Info().
+		Int("message_count", len(messages)).
+		Str("first_message_moscow", firstMsgMoscow.Format(time.RFC3339)).
+		Str("last_message_moscow", lastMsgMoscow.Format(time.RFC3339)).
+		Bool("all_messages_match_date", allMatch).
+		Msg("Retrieved messages for summary (Moscow time)")
 
 	// Get most active user
 	mostActiveUser, err := s.storage.GetMostActiveUser(ctx, chatID, date)

@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build:*)",
+      "WebSearch",
+      "WebFetch(domain:ai.google.dev)",
+      "Bash(git add:*)",
+      "Bash(git rm:*)",
+      "Bash(cat:*)",
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(git merge images -m \"$(cat <<''EOF''\nMerge branch ''images'': Add AI image generation feature\n\nAdds /draw command powered by Hugging Face FLUX.1-schnell model with rate limiting and database tracking.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(rm:*)",
+      "Bash(mkdir:*)",
+      "Bash(mv:*)",
+      "Bash(git push:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

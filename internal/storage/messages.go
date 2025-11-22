@@ -14,7 +14,6 @@ func (c *Client) GetMessagesForDate(ctx context.Context, chatID int64, date stri
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	// Parse date to get start and end timestamps in Moscow timezone
 	loc, err := time.LoadLocation("Europe/Moscow")
 	if err != nil {
 		return nil, fmt.Errorf("failed to load timezone: %w", err)
@@ -24,10 +23,8 @@ func (c *Client) GetMessagesForDate(ctx context.Context, chatID int64, date stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse date: %w", err)
 	}
+	endTime := startTime.AddDate(0, 0, 1)
 
-	endTime := startTime.AddDate(0, 0, 1) // Next day at 00:00
-
-	// Convert to UTC for database query
 	startUTC := startTime.UTC()
 	endUTC := endTime.UTC()
 
@@ -63,13 +60,22 @@ func (c *Client) GetMessagesForDate(ctx context.Context, chatID int64, date stri
 		return nil, err
 	}
 
+	filtered := make([]models.ChatMessage, 0, len(messages))
+	for _, msg := range messages {
+		msgDate := msg.CreatedAt.In(loc).Format("2006-01-02")
+		if msgDate == date {
+			filtered = append(filtered, msg)
+		}
+	}
+
 	c.logger.Debug().
 		Int64("chat_id", chatID).
 		Str("date", date).
-		Int("count", len(messages)).
-		Msg("Retrieved messages for date")
+		Int("retrieved_count", len(messages)).
+		Int("filtered_count", len(filtered)).
+		Msg("Filtered messages for date in Moscow timezone")
 
-	return messages, nil
+	return filtered, nil
 }
 
 // GetUserMessageCounts retrieves message counts per user for a specific date
@@ -143,4 +149,3 @@ func (c *Client) GetMostActiveUser(ctx context.Context, chatID int64, date strin
 
 	return mostActive, nil
 }
-

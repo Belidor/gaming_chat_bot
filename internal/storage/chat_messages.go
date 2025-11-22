@@ -91,6 +91,49 @@ func (c *Client) GetUnindexedMessages(ctx context.Context, limit int) ([]*models
 	return messages, nil
 }
 
+// GetUnindexedMessagesForChat retrieves unindexed messages for a specific chat
+func (c *Client) GetUnindexedMessagesForChat(ctx context.Context, chatID int64, limit int) ([]*models.ChatMessage, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	var messages []*models.ChatMessage
+	operation := "get_unindexed_messages_for_chat"
+
+	err := c.withRetry(ctx, operation, func() error {
+		query := c.client.From("chat_messages").
+			Select("id,message_id,user_id,username,first_name,chat_id,message_text,indexed,created_at,indexed_at", "exact", false).
+			Eq("chat_id", fmt.Sprintf("%d", chatID)).
+			Eq("indexed", "false").
+			Order("created_at", nil)
+
+		if limit > 0 {
+			query = query.Limit(limit, "")
+		}
+
+		data, _, err := query.Execute()
+		if err != nil {
+			return fmt.Errorf("failed to fetch unindexed messages for chat: %w", err)
+		}
+
+		if err := json.Unmarshal(data, &messages); err != nil {
+			return fmt.Errorf("failed to parse unindexed messages for chat: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	c.logger.Debug().
+		Int64("chat_id", chatID).
+		Int("count", len(messages)).
+		Msg("Retrieved unindexed messages for chat")
+
+	return messages, nil
+}
+
 // UpdateMessageEmbedding updates a single message with its embedding
 func (c *Client) UpdateMessageEmbedding(ctx context.Context, id int64, embedding []float32) error {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
@@ -292,13 +335,13 @@ func (c *Client) GetRAGStatistics(ctx context.Context) (map[string]interface{}, 
 
 	if len(stats) == 0 {
 		return map[string]interface{}{
-			"total_messages":       0,
-			"indexed_messages":     0,
-			"unindexed_messages":   0,
-			"indexed_percentage":   0.0,
-			"oldest_message":       time.Time{},
-			"newest_message":       time.Time{},
-			"last_indexing":        time.Time{},
+			"total_messages":     0,
+			"indexed_messages":   0,
+			"unindexed_messages": 0,
+			"indexed_percentage": 0.0,
+			"oldest_message":     time.Time{},
+			"newest_message":     time.Time{},
+			"last_indexing":      time.Time{},
 		}, nil
 	}
 

@@ -32,10 +32,8 @@ func (c *Client) SaveDailySummary(ctx context.Context, summary *models.DailySumm
 			"created_at":           summary.CreatedAt,
 		}
 
-		// Use upsert to insert or update if exists
-		// The "true" parameter enables upsert mode (on_conflict do update)
 		_, _, err := c.client.From("daily_summaries").
-			Insert(data, true, "", "", "").
+			Insert(data, true, "chat_id,date", "", "").
 			Execute()
 
 		if err != nil {

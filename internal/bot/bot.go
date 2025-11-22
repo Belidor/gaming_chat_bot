@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/telegram-llm-bot/internal/llm"
 	"github.com/telegram-llm-bot/internal/models"
+	"github.com/telegram-llm-bot/internal/rag"
 	"github.com/telegram-llm-bot/internal/ratelimit"
 	"github.com/telegram-llm-bot/internal/storage"
 )
@@ -20,6 +21,7 @@ type Bot struct {
 	config          *models.BotConfig
 	storage         *storage.Client
 	llmClient       *llm.Client
+	ragSearcher     *rag.Searcher
 	limiter         *ratelimit.Limiter
 	logger          zerolog.Logger
 	wg              sync.WaitGroup // Tracks active handlers for graceful shutdown
@@ -32,6 +34,7 @@ func New(
 	config *models.BotConfig,
 	storage *storage.Client,
 	llmClient *llm.Client,
+	ragSearcher *rag.Searcher,
 	limiter *ratelimit.Limiter,
 	logger zerolog.Logger,
 ) (*Bot, error) {
@@ -50,12 +53,13 @@ func New(
 		Msg("Telegram bot authorized")
 
 	return &Bot{
-		api:       api,
-		config:    config,
-		storage:   storage,
-		llmClient: llmClient,
-		limiter:   limiter,
-		logger:    logger.With().Str("component", "bot").Logger(),
+		api:         api,
+		config:      config,
+		storage:     storage,
+		llmClient:   llmClient,
+		ragSearcher: ragSearcher,
+		limiter:     limiter,
+		logger:      logger.With().Str("component", "bot").Logger(),
 	}, nil
 }
 

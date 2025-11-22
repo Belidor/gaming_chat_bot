@@ -13,6 +13,7 @@ import (
 	"github.com/telegram-llm-bot/internal/config"
 	"github.com/telegram-llm-bot/internal/embeddings"
 	"github.com/telegram-llm-bot/internal/llm"
+	"github.com/telegram-llm-bot/internal/rag"
 	"github.com/telegram-llm-bot/internal/ratelimit"
 	"github.com/telegram-llm-bot/internal/scheduler"
 	"github.com/telegram-llm-bot/internal/storage"
@@ -79,9 +80,38 @@ func main() {
 		logger.Fatal().Err(err).Msg("Failed to create rate limiter")
 	}
 
+	// Initialize embeddings client for RAG
+	logger.Info().Msg("Initializing embeddings client...")
+	embeddingsClient := embeddings.NewClient(
+		cfg.GeminiAPIKey,
+		"text-embedding-004",
+		100, // batch size
+		30*time.Second,
+		logger,
+	)
+	defer func() {
+		if err := embeddingsClient.Close(); err != nil {
+			logger.Error().Err(err).Msg("Failed to close embeddings client")
+		}
+	}()
+
+	// Initialize RAG searcher
+	logger.Info().Msg("Initializing RAG searcher...")
+	ragSearcher := rag.NewSearcher(
+		storageClient,
+		embeddingsClient,
+		cfg.RAG,
+		logger,
+	)
+	logger.Info().
+		Bool("rag_enabled", cfg.RAG.Enabled).
+		Float64("similarity_threshold", cfg.RAG.SimilarityThreshold).
+		Int("top_k", cfg.RAG.TopK).
+		Msg("RAG searcher initialized")
+
 	// Initialize bot
 	logger.Info().Msg("Initializing Telegram bot...")
-	telegramBot, err := bot.New(cfg, storageClient, llmClient, limiter, logger)
+	telegramBot, err := bot.New(cfg, storageClient, llmClient, ragSearcher, limiter, logger)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to create bot")
 	}
@@ -97,21 +127,6 @@ func main() {
 	defer func() {
 		if err := summaryGenerator.Close(); err != nil {
 			logger.Error().Err(err).Msg("Failed to close summary generator")
-		}
-	}()
-
-	// Initialize embeddings client for RAG
-	logger.Info().Msg("Initializing embeddings client...")
-	embeddingsClient := embeddings.NewClient(
-		cfg.GeminiAPIKey,
-		"text-embedding-004",
-		100, // batch size
-		30*time.Second,
-		logger,
-	)
-	defer func() {
-		if err := embeddingsClient.Close(); err != nil {
-			logger.Error().Err(err).Msg("Failed to close embeddings client")
 		}
 	}()
 
